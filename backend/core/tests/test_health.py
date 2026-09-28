@@ -10,6 +10,12 @@ def test_health_returns_200(api_client):
     assert response.json() == {"status": "ok"}
 
 
+def test_health_without_trailing_slash_returns_200_without_redirect(api_client):
+    response = api_client.get("/health", follow=False)
+    assert response.status_code == 200
+    assert response.json() == {"status": "ok"}
+
+
 def test_health_rejects_post(api_client):
     response = api_client.post("/health/", {}, format="json")
     assert response.status_code == 405
@@ -28,7 +34,7 @@ def test_root_redirects_authenticated_to_health(api_client):
     api_client.force_login(user)
     response = api_client.get("/")
     assert response.status_code == 302
-    assert response.url == "/health/"
+    assert response.url == "/health"
 
 
 def test_login_page_renders(api_client):
