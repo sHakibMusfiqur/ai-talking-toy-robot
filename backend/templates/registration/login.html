@@ -1,0 +1,50 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Sign in — AI Talking Toy Robot</title>
+  <style>
+    body { font-family: system-ui, -apple-system, "Segoe UI", Roboto, sans-serif; background: #0B0B0D; color: #F5F5F7; display: flex; align-items: center; justify-content: center; min-height: 100vh; margin: 0; }
+    main { background: #141417; border: 1px solid #2A2A31; border-radius: 20px; padding: 32px; width: 100%; max-width: 380px; }
+    h1 { font-size: 24px; margin: 0 0 20px; }
+    form div { margin-bottom: 16px; }
+    label { display: block; font-size: 14px; color: #A1A1AA; margin-bottom: 6px; }
+    input { width: 100%; box-sizing: border-box; padding: 12px; border-radius: 10px; border: 1px solid #2A2A31; background: #1C1C21; color: #F5F5F7; font-size: 16px; }
+    input:focus { outline: 2px solid #D0193A; outline-offset: 1px; }
+    button { width: 100%; padding: 12px; border: 0; border-radius: 10px; background: linear-gradient(180deg, #D0193A, #9E1B32); color: #fff; font-size: 16px; font-weight: 600; cursor: pointer; min-height: 44px; }
+    .errors { color: #FF5C5C; font-size: 14px; margin-bottom: 16px; }
+    ul { margin: 0; padding-left: 18px; }
+  </style>
+</head>
+<body>
+  <main>
+    <h1>Sign in</h1>
+    {% if form.errors %}
+      <div class="errors" role="alert">
+        <ul>
+          {% for field, errors in form.errors.items %}
+            {% for error in errors %}<li>{{ error }}</li>{% endfor %}
+          {% endfor %}
+        </ul>
+      </div>
+    {% endif %}
+    {% if next and user.is_authenticated %}
+      <div class="errors" role="alert">Your account doesn't have access to this page.</div>
+    {% endif %}
+    <form method="post" action="{% url 'login' %}">
+      {% csrf_token %}
+      <div>
+        <label for="id_username">Email</label>
+        <input type="email" name="username" id="id_username" autocomplete="email" required autofocus>
+      </div>
+      <div>
+        <label for="id_password">Password</label>
+        <input type="password" name="password" id="id_password" autocomplete="current-password" required>
+      </div>
+      <button type="submit">Sign in</button>
+      <input type="hidden" name="next" value="{{ next }}">
+    </form>
+  </main>
+</body>
+</html>

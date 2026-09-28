@@ -1,0 +1,33 @@
+services:
+  mongo:
+    image: mongo:7.0
+    command: ["mongod", "--replSet", "rs0", "--bind_ip_all"]
+    ports:
+      - "27017:27017"
+    volumes:
+      - mongo_data:/data/db
+      - ./mongo/healthcheck.js:/healthcheck.js:ro
+    healthcheck:
+      test: ["CMD-SHELL", "mongosh --quiet --file /healthcheck.js"]
+      interval: 5s
+      timeout: 10s
+      retries: 24
+      start_period: 10s
+
+  django:
+    build: ../backend
+    environment:
+      DJANGO_SECRET_KEY: ${DJANGO_SECRET_KEY:?DJANGO_SECRET_KEY must be set in .env}
+      DJANGO_DEBUG: "false"
+      DJANGO_ALLOWED_HOSTS: "localhost,127.0.0.1"
+      MONGO_HOST: "mongodb://mongo:27017/?replicaSet=rs0"
+      MONGO_DB_NAME: "ai_talking_toy"
+    ports:
+      - "8000:8000"
+    depends_on:
+      mongo:
+        condition: service_healthy
+    command: ["sh", "-c", "python manage.py migrate && python manage.py runserver 0.0.0.0:8000"]
+
+volumes:
+  mongo_data:
