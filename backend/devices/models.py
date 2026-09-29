@@ -77,3 +77,16 @@ class SensorData(models.Model):
 
     def __str__(self):
         return f"{self.sensor_type}={self.value} @ {self.robot.device_id}"
+
+
+class DeviceChallenge(models.Model):
+    robot = models.ForeignKey(
+        Robot, on_delete=models.CASCADE, related_name="challenges"
+    )
+    challenge_hash = models.CharField(max_length=64)
+    created_at = models.DateTimeField(auto_now_add=True)
+    expires_at = models.DateTimeField()
+    consumed_at = models.DateTimeField(null=True, blank=True)
+
+    def __str__(self):
+        return f"challenge for {self.robot.device_id}"

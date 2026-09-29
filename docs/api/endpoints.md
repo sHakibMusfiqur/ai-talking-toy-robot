@@ -170,3 +170,80 @@ ownership boundaries observable; used by the control panel later).
 - `200` â†’ robot object (paired to caller)
 - `404` â†’ not owned, unknown, or malformed id (indistinguishable)
 - `405` â†’ `PUT`/`PATCH`/`DELETE` are not in the Phase 6 contract
+
+# Phase 7 API Reference (device authentication)
+
+Same base path, ID, and error conventions as earlier phases. Phase 7 adds the
+device signed-challenge ? JWT exchange (AR-9/AR-10). Two fully separate auth
+domains now exist:
+
+- **Humans**: session cookie + CSRF (unchanged; no human JWT in Phase 7).
+- **Devices**: `Authorization: Bearer <device JWT>` — accepted only on
+  device-facing views; never on human endpoints, and sessions are never
+  accepted on device endpoints.
+
+Every device credential failure returns the **same** `401 {"detail": "Invalid
+credentials."}` — unknown device, unknown/expired/replayed challenge, bad
+signature, malformed/expired/tampered token — with no timing or content
+distinction about stored state.
+
+### `POST /api/v1/devices/auth/challenge/`
+
+Step 1: request a short-lived server nonce. **No token required** (the device
+proves nothing yet) — but `device_id` must belong to a registered robot.
+
+Request:
+
+```json
+{"device_id": "<uuid>"}
+```
+
+- `200` ? `{"challenge_id", "challenge", "expires_in"}` — raw challenge is
+  returned exactly once; only its SHA-256 hash is stored
+- `400` ? `{"device_id": [...]}` malformed UUID
+- `401` ? `{"detail": "Invalid credentials."}` — identical for unknown and
+  malformed-UUID-after-normalization device ids
+
+Challenges expire after `DEVICE_CHALLENGE_TTL_SECONDS` (default 60 s) and
+issuing a new one atomically invalidates the robot's previous unconsumed
+challenge (one live challenge per robot). Trailing slash only.
+
+### `POST /api/v1/devices/auth/token/`
+
+Step 2: exchange a **signed** challenge for a short-lived device JWT. The
+device signs the raw challenge string with its private key (kept on-device,
+never transmitted) using the algorithm implied by its registered public key:
+EC ? ECDSA-SHA256 (DER or raw 64-byte `r||s`, ESP32/mbedTLS-compatible),
+RSA ? PKCS#1 v1.5 SHA-256. Signature is base64.
+
+Request:
+
+```json
+{"device_id": "<uuid>", "challenge_id": "<objectid>", "challenge": "<hex>", "signature": "<base64>"}
+```
+
+- `200` ? `{"access_token", "token_type": "Bearer", "expires_in"}` — the
+  token is the only secret in the response
+- `400` ? missing/blank fields, malformed `device_id`
+- `401` ? `{"detail": "Invalid credentials."}` — uniform across all faults;
+  challenges are single-use (replay ? 401), consumed atomically
+
+JWT: HS256, claims `sub` = robot ObjectId, `iss`/`aud` from settings, `iat`,
+`exp` (`DEVICE_JWT_TTL_SECONDS`, default 3600). Trailing slash only.
+
+### `GET /api/v1/devices/me/`
+
+Authenticated device reads exactly its own robot identity (the principal
+comes solely from the token — client-supplied ids in query/body/headers
+cannot switch context).
+
+- `200` ? robot object (same shape as Phase 6; no parent/owner or credential
+  fields — pairing status is included but never the parent)
+- `401` ? missing header (`{"detail": "Authentication credentials were not
+  provided."}`) or any invalid token (`{"detail": "Invalid credentials."}`);
+  `WWW-Authenticate: Bearer` is included
+- `405` ? write methods
+
+Pairing is deliberately **not** required to authenticate: the token proves
+machine identity, pairing proves ownership. An unpaired robot can call
+`me/` and sees `pairing_status: "unpaired"`.

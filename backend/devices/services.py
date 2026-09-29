@@ -1,8 +1,19 @@
+import base64
+import binascii
 import hashlib
+import hmac
 import secrets
 import uuid
 from datetime import timedelta
 
+from bson import ObjectId
+from cryptography.exceptions import InvalidSignature
+from cryptography.hazmat.primitives import hashes, serialization
+from cryptography.hazmat.primitives.asymmetric import ec, padding, rsa
+from cryptography.hazmat.primitives.asymmetric.utils import (
+    decode_dss_signature,
+    encode_dss_signature,
+)
 from django.conf import settings
 from django.utils import timezone
 from django_mongodb_backend import transaction
@@ -11,11 +22,13 @@ from analytics.services import record_audit
 
 from .exceptions import (
     DeviceAlreadyRegistered,
+    InvalidDeviceCredentials,
     InvalidDeviceId,
     InvalidPairingCode,
     InvalidPublicKey,
 )
-from .models import DeviceCredential, Robot
+from .models import DeviceChallenge, DeviceCredential, Robot
+from .tokens import issue_device_token
 
 # No vowels/ambiguous glyphs (0/O, 1/I/L) — codes are transcribed by humans.
 PAIRING_CODE_ALPHABET = "ABCDEFGHJKMNPQRSTUVWXYZ23456789"
@@ -23,14 +36,22 @@ PAIRING_CODE_ALPHABET = "ABCDEFGHJKMNPQRSTUVWXYZ23456789"
 PUBLIC_KEY_BEGIN = "-----BEGIN PUBLIC KEY-----"
 PUBLIC_KEY_END = "-----END PUBLIC KEY-----"
 
+AUTH_FAILED_CHALLENGE = "device.auth_failed.challenge"
+AUTH_FAILED_SIGNATURE = "device.auth_failed.signature"
+TOKEN_ISSUED = "device.token_issued"
+
 
 def generate_pairing_code():
     length = settings.DEVICE_PAIRING_CODE_LENGTH
     return "".join(secrets.choice(PAIRING_CODE_ALPHABET) for _ in range(length))
 
 
+def sha256_hex(value):
+    return hashlib.sha256(value.encode("utf-8")).hexdigest()
+
+
 def hash_pairing_code(code):
-    return hashlib.sha256(code.encode("utf-8")).hexdigest()
+    return sha256_hex(code)
 
 
 def register_device(*, device_id, public_key, firmware_version="", ip=None):
@@ -112,6 +133,146 @@ def pair_robot(*, pairing_code, parent, nickname=None, ip=None):
         )
         robot.refresh_from_db()
     return robot
+
+
+def create_device_challenge(*, device_id, ip=None):
+    """Phase 7 (AR-10): issue a short-lived random server nonce to a
+    registered device. The raw challenge is returned exactly once and only
+    its SHA-256 hash is persisted. Issuing a new challenge atomically
+    invalidates the device's previous unconsumed challenge (one live
+    challenge per robot, bounded rows). Unknown or malformed device ids
+    raise the uniform 401 — a device_id alone never confirms existence."""
+    device_id = _normalize_device_id(device_id)
+    robot = Robot.objects.filter(device_id=device_id).first()
+    if robot is None:
+        raise InvalidDeviceCredentials()
+
+    now = timezone.now()
+    ttl = settings.DEVICE_CHALLENGE_TTL_SECONDS
+    with transaction.atomic():
+        DeviceChallenge.objects.filter(
+            robot=robot, consumed_at__isnull=True
+        ).update(consumed_at=now)
+        DeviceChallenge.objects.filter(robot=robot, expires_at__lt=now).delete()
+        raw_challenge = secrets.token_hex(32)
+        challenge = DeviceChallenge.objects.create(
+            robot=robot,
+            challenge_hash=sha256_hex(raw_challenge),
+            expires_at=now + timedelta(seconds=ttl),
+        )
+    return str(challenge.pk), raw_challenge, ttl
+
+
+def exchange_device_token(*, device_id, challenge_id, challenge, signature, ip=None):
+    """Phase 7 signed-challenge exchange (AR-10): verifies the device
+    proves possession of the private key by signing the nonce, consumes
+    the challenge single-use, and issues a short-lived device JWT.
+
+    Every fault path raises the same uniform 401 (unknown device, unknown
+    or malformed challenge, expired or replayed challenge, bad signature)
+    so responses reveal nothing about stored state. Failures for a known
+    device are audited without recording any challenge/signature material;
+    unknown device ids are not audited (anti-probing, Phase 19 rate
+    limiting covers enumeration attempts)."""
+    device_id = _normalize_device_id(device_id)
+    now = timezone.now()
+    robot = Robot.objects.filter(device_id=device_id).first()
+    if robot is None:
+        raise InvalidDeviceCredentials()
+
+    valid_id = isinstance(challenge_id, str) and ObjectId.is_valid(challenge_id)
+    dc = (
+        DeviceChallenge.objects.filter(pk=ObjectId(challenge_id), robot=robot).first()
+        if valid_id
+        else None
+    )
+    challenge_ok = (
+        dc is not None
+        and dc.consumed_at is None
+        and dc.expires_at > now
+        and isinstance(challenge, str)
+        and hmac.compare_digest(dc.challenge_hash, sha256_hex(challenge))
+    )
+    if not challenge_ok:
+        _audit_auth_failure(AUTH_FAILED_CHALLENGE, robot, ip)
+        raise InvalidDeviceCredentials()
+
+    if not _verify_device_signature(
+        robot.credential.public_key, challenge, signature
+    ):
+        _audit_auth_failure(AUTH_FAILED_SIGNATURE, robot, ip)
+        raise InvalidDeviceCredentials()
+
+    with transaction.atomic():
+        consumed = DeviceChallenge.objects.filter(
+            pk=dc.pk, consumed_at__isnull=True, expires_at__gt=now
+        ).update(consumed_at=now)
+        if consumed != 1:
+            _audit_auth_failure(AUTH_FAILED_CHALLENGE, robot, ip)
+            raise InvalidDeviceCredentials()
+        token, ttl = issue_device_token(robot)
+        DeviceCredential.objects.filter(robot=robot).update(
+            token_hash=sha256_hex(token),
+            token_expires_at=now + timedelta(seconds=ttl),
+        )
+        record_audit(
+            actor=None,
+            action=TOKEN_ISSUED,
+            target=str(robot.pk),
+            ip=ip,
+        )
+    return token, ttl
+
+
+def _audit_auth_failure(action, robot, ip):
+    record_audit(actor=None, action=action, target=str(robot.pk), ip=ip)
+
+
+def _verify_device_signature(public_key_pem, challenge, signature):
+    """Verify an asymmetric signature over the raw challenge string.
+    EC keys accept DER-encoded ECDSA-SHA256 (OpenSSL/Python) and raw
+    64-byte r||s (ESP32 mbedTLS) signatures; RSA keys accept
+    PKCS#1 v1.5 SHA-256. Any parse or verification error is a plain
+    False — never an exception surfacing to the client."""
+    if not isinstance(signature, str) or not signature:
+        return False
+    try:
+        sig = base64.b64decode(signature, validate=True)
+        key = serialization.load_pem_public_key(public_key_pem.encode("utf-8"))
+    except (ValueError, binascii.Error, TypeError):
+        return False
+    challenge_bytes = challenge.encode("utf-8")
+
+    if isinstance(key, ec.EllipticCurvePublicKey):
+        try:
+            key.verify(sig, challenge_bytes, ec.ECDSA(hashes.SHA256()))
+            return True
+        except (InvalidSignature, ValueError):
+            pass
+        if len(sig) == 64:
+            r = int.from_bytes(sig[:32], "big")
+            s = int.from_bytes(sig[32:], "big")
+            try:
+                key.verify(
+                    encode_dss_signature(r, s),
+                    challenge_bytes,
+                    ec.ECDSA(hashes.SHA256()),
+                )
+                return True
+            except (InvalidSignature, ValueError):
+                return False
+        return False
+
+    if isinstance(key, rsa.RSAPublicKey):
+        try:
+            key.verify(
+                sig, challenge_bytes, padding.PKCS1v15(), hashes.SHA256()
+            )
+            return True
+        except (InvalidSignature, ValueError):
+            return False
+
+    return False
 
 
 def _normalize_device_id(device_id):

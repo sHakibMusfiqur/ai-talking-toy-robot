@@ -8,9 +8,22 @@ from rest_framework.views import APIView
 from accounts.models import Parent
 from core.permissions import AuthRequired, IsAdminRole
 
+from .authentication import DeviceJWTAuthentication
 from .models import Robot
-from .serializers import DevicePairSerializer, DeviceRegisterSerializer, RobotSerializer
-from .services import pair_robot, register_device
+from .permissions import DeviceAuthenticated
+from .serializers import (
+    DeviceChallengeSerializer,
+    DevicePairSerializer,
+    DeviceRegisterSerializer,
+    DeviceTokenSerializer,
+    RobotSerializer,
+)
+from .services import (
+    create_device_challenge,
+    exchange_device_token,
+    pair_robot,
+    register_device,
+)
 
 
 def _client_ip(request):
@@ -70,6 +83,73 @@ class DevicePairView(APIView):
             RobotSerializer(robot).data,
             status=status.HTTP_200_OK,
         )
+
+
+class DeviceChallengeView(APIView):
+    """Phase 7 step 1 (AR-10): issue a short-lived signed-challenge nonce
+    to a registered device. Unauthenticated by design (the device has no
+    token yet); the raw challenge is returned once and never logged."""
+
+    permission_classes = [AllowAny]
+    authentication_classes = []
+
+    def post(self, request):
+        serializer = DeviceChallengeSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        challenge_id, challenge, expires_in = create_device_challenge(
+            device_id=serializer.validated_data["device_id"],
+            ip=_client_ip(request),
+        )
+        return Response(
+            {
+                "challenge_id": challenge_id,
+                "challenge": challenge,
+                "expires_in": expires_in,
+            },
+            status=status.HTTP_200_OK,
+        )
+
+
+class DeviceTokenView(APIView):
+    """Phase 7 step 2 (AR-10): exchange a signed challenge for a
+    short-lived device Bearer JWT. All credential faults return one
+    uniform 401 body; the token itself is the only secret returned."""
+
+    permission_classes = [AllowAny]
+    authentication_classes = []
+
+    def post(self, request):
+        serializer = DeviceTokenSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        token, expires_in = exchange_device_token(
+            device_id=serializer.validated_data["device_id"],
+            challenge_id=serializer.validated_data["challenge_id"],
+            challenge=serializer.validated_data["challenge"],
+            signature=serializer.validated_data["signature"],
+            ip=_client_ip(request),
+        )
+        return Response(
+            {
+                "access_token": token,
+                "token_type": "Bearer",
+                "expires_in": expires_in,
+            },
+            status=status.HTTP_200_OK,
+        )
+
+
+class DeviceIdentityView(APIView):
+    """Authenticated device reads exactly its own robot identity. The
+    principal comes solely from the JWT — client-supplied ids in query,
+    body or headers can never switch context."""
+
+    authentication_classes = [DeviceJWTAuthentication]
+    permission_classes = [DeviceAuthenticated]
+    http_method_names = ["get", "head", "options"]
+
+    def get(self, request):
+        robot = request.auth["robot"]
+        return Response(RobotSerializer(robot).data)
 
 
 class RobotDetailView(APIView):

@@ -115,6 +115,18 @@ DEVICE_PAIRING_CODE_TTL_SECONDS = int(
     os.environ.get("DEVICE_PAIRING_CODE_TTL_SECONDS", "900")
 )
 
+# Device access tokens (Phase 7, AR-10): short-lived signed-challenge → JWT
+# exchange. Secret is env-configured (rotate independently of Django's
+# SECRET_KEY); falls back to SECRET_KEY so dev/test work out of the box.
+DEVICE_JWT_SECRET = os.environ.get("DEVICE_JWT_SECRET", SECRET_KEY)
+DEVICE_JWT_ALGORITHM = os.environ.get("DEVICE_JWT_ALGORITHM", "HS256")
+DEVICE_JWT_TTL_SECONDS = int(os.environ.get("DEVICE_JWT_TTL_SECONDS", "3600"))
+DEVICE_JWT_ISSUER = os.environ.get("DEVICE_JWT_ISSUER", "ai-talking-toy-backend")
+DEVICE_JWT_AUDIENCE = os.environ.get("DEVICE_JWT_AUDIENCE", "ai-talking-toy-robot")
+DEVICE_CHALLENGE_TTL_SECONDS = int(
+    os.environ.get("DEVICE_CHALLENGE_TTL_SECONDS", "60")
+)
+
 LOGIN_REDIRECT_URL = "/"
 
 LOGOUT_REDIRECT_URL = "/login/"

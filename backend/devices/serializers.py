@@ -57,6 +57,33 @@ class DevicePairSerializer(serializers.Serializer):
         return value.strip()
 
 
+class DeviceChallengeSerializer(serializers.Serializer):
+    device_id = serializers.CharField()
+
+    def validate_device_id(self, value):
+        try:
+            return _normalize_device_id(value)
+        except InvalidDeviceId:
+            raise serializers.ValidationError("Enter a valid UUID.")
+
+
+class DeviceTokenSerializer(serializers.Serializer):
+    device_id = serializers.CharField()
+    challenge_id = serializers.CharField()
+    challenge = serializers.CharField(
+        trim_whitespace=False, style={"input_type": "password"}
+    )
+    signature = serializers.CharField(
+        trim_whitespace=False, style={"input_type": "password"}
+    )
+
+    def validate_device_id(self, value):
+        try:
+            return _normalize_device_id(value)
+        except InvalidDeviceId:
+            raise serializers.ValidationError("Enter a valid UUID.")
+
+
 class RobotSerializer(serializers.ModelSerializer):
     id = ObjectIdField(read_only=True)
 

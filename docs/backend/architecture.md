@@ -129,3 +129,70 @@ analytics/        UsageLog, AuditLog + record_audit()
 
 No device JWT/challenge auth (Phase 7), no MQTT (Phase 8), no conversation/AI
 processing (Phase 9â€“12), no OTA execution, no dashboards, no firmware.
+
+# Phase 7 Backend Architecture (addendum)
+
+## Device authentication (AR-9 / AR-10)
+
+```
+devices/models.py       + DeviceChallenge (migration 0002_devicechallenge)
+devices/services.py     + create_device_challenge, exchange_device_token,
+                          _verify_device_signature, sha256_hex
+devices/tokens.py         issue_device_token / decode_device_token (PyJWT)
+devices/authentication.py DeviceJWTAuthentication (Bearer, per-view)
+devices/permissions.py    + DeviceAuthenticated
+```
+
+- `DeviceChallenge`: one row per issued nonce — `challenge_hash` (SHA-256
+  only, raw never stored), `expires_at` (`DEVICE_CHALLENGE_TTL_SECONDS`,
+  default 60 s), `consumed_at`. Issuing invalidates the robot's previous
+  unconsumed challenge and prunes expired rows (bounded storage).
+- Exchange verifies the signature **before** consuming the challenge
+  (retries within TTL are allowed; replay after success is impossible),
+  then consumes via check-and-set update inside
+  `django_mongodb_backend.transaction.atomic()` together with issuing the
+  token and updating `DeviceCredential.token_hash`/`token_expires_at`
+  (record-only state: validation is stateless).
+- Signature verification (`cryptography`): PEM SubjectPublicKeyInfo; EC ?
+  ECDSA-SHA256 accepting DER **or** raw 64-byte `r||s` (ESP32/mbedTLS),
+  RSA ? PKCS#1 v1.5 SHA-256; malformed material is a plain `False`, never a
+  500.
+- JWT (`PyJWT`): HS256, secret `DEVICE_JWT_SECRET` (falls back to
+  `SECRET_KEY` for dev; production sets an independent =32-char value),
+  `iss`/`aud`/`exp`/`iat`/`sub` all required and validated on decode. Token
+  validation is stateless — revocation = delete the Robot (tested).
+- `DeviceJWTAuthentication` is attached **per-view** (`authentication_classes`
+  on device views only), never to `DEFAULT_AUTHENTICATION_CLASSES`, so a
+  device Bearer cannot authenticate any human endpoint and a dashboard
+  session cannot authenticate a device endpoint. It resolves `request.auth`
+  as `{"robot": <Robot>, "payload": <claims>}` — client-supplied
+  `robot_id`/`device_id` are never consulted (tested).
+- `authenticate_header()` returns `Bearer` (proper `WWW-Authenticate`);
+  `core.exceptions.api_exception_handler` also forces 401 for
+  `AuthenticationFailed` so the uniform 401 contract cannot degrade to 403.
+- Audit categories (target = robot id only; never challenge, signature, or
+  token material): `device.token_issued`, `device.auth_failed.challenge`,
+  `device.auth_failed.signature`. Unknown-device attempts write **no** audit
+  row (anti-probing; enumeration/rate limiting is Phase 19).
+- New pinned deps: `PyJWT==2.15.1`, `cryptography==50.0.1`.
+
+## Phase 7 decisions (recorded)
+
+1. **No refresh endpoint** — devices re-run challenge/token within the TTL
+   window (§26's "proactive refresh" is firmware-side: exchange again).
+2. **Authentication ? pairing** — challenge/token require registration only;
+   pairing remains the separate ownership act.
+3. **No human JWT in Phase 7** — dashboard keeps session+CSRF until the
+   SPA/API decision point (Phase 17); two auth domains stay disjoint.
+4. **Trailing slash only** for Phase 7 paths — the Phase 6 dual-slash
+   aliases were a one-off spec conflict, not a pattern to extend.
+5. **Challenge issued to unpaired robots** — a registered device can
+   authenticate before being claimed; `me/` exposes no owner data.
+6. **Signature payload** is the raw challenge UTF-8 bytes (no DER wrapping,
+   no prefixes) — simplest for firmware.
+
+## Phase 7 out of scope (unchanged later-phase boundaries)
+
+No MQTT (Phase 8), no conversation/AI processing (Phase 9–12), no OTA
+execution, no dashboards, no firmware implementation, no rate limiting of
+auth endpoints (Phase 19).

@@ -2,3 +2,5 @@ Django==5.2.17
 djangorestframework==3.18.1
 django-mongodb-backend==5.2.4
 pymongo==4.18.2
+PyJWT==2.15.1
+cryptography==50.0.1
