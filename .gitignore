@@ -1,10 +1,55 @@
+# Environment / secrets
 .env
+.env.*
+!.env.example
+
+# Virtual environments
 .venv/
+venv/
+env/
+
+# Python
 __pycache__/
+*.py[cod]
 *.pyc
 *.pyo
+*.pyd
+*.egg-info/
+.eggs/
+
+# Test / coverage
 .pytest_cache/
+.coverage
+.coverage.*
+htmlcov/
+
+# Local databases / legacy artifacts
 db.sqlite3
 staticfiles/
-.coverage
-htmlcov/
+
+# MongoDB local data (if ever bind-mounted into the repo)
+mongo_data/
+infra/mongo-data/
+
+# Build / cache / temp
+build/
+dist/
+.cache/
+*.tmp
+*.log
+tmp/
+temp/
+
+# IDE / editor
+.idea/
+.vscode/
+*.swp
+*.swo
+
+# OS files
+.DS_Store
+Thumbs.db
+desktop.ini
+
+# Local Docker overrides
+docker-compose.override.yml
