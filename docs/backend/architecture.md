@@ -78,3 +78,54 @@ pytest-django; per-test cleanup uses flush (migration records preserved).
 
 devices/, MQTT, conversations/, AI service, dashboards, OTA, firmware,
 production WSGI server (dev server only at this phase).
+
+---
+
+# Phase 6 Backend Architecture (addendum)
+
+## Apps & schema
+
+Models live in their eventual apps per `docs/01` §12.1 (full Section 13
+schema migrated up front):
+
+```
+devices/          Robot, DeviceCredential, RobotState, RobotEvent, SensorData
+                  + registration/pairing services, API, tests
+conversations/    Conversation, Message, AIInteraction   (models only)
+memory/           Memory                                 (models only)
+configuration/    Configuration                          (models only)
+firmware/         Firmware, OTAUpdate                    (models only)
+safety/           SafetyEvent                            (models only)
+analytics/        UsageLog, AuditLog + record_audit()
+```
+
+`content/` gets no app yet (no Section 13 entity). All PKs remain ObjectIds;
+`Configuration.version` is domain data, not an identifier.
+
+## Registration & pairing (Flow 4)
+
+- `devices.services.register_device` / `pair_robot` are the **only**
+  state-changing paths; views are thin (REST today, MQTT bridge reuses the
+  same functions later).
+- Multi-document writes (`Robot` + `DeviceCredential` + `AuditLog`) use
+  `django_mongodb_backend.transaction.atomic()` on the `rs0` replica set.
+- Pairing codes: 8 chars from `ABCDEFGHJKMNPQRSTUVWXYZ23456789`
+  (settings-driven: `DEVICE_PAIRING_CODE_LENGTH`,
+  `DEVICE_PAIRING_CODE_TTL_SECONDS`, default 900 s), generated with
+  `secrets`, stored **SHA-256 only**, single-use, consumed atomically with a
+  check-and-set update; invalid/expired/used all return the same generic
+  `{"detail": "Invalid pairing code."}`. Raw codes are never logged and never
+  re-returned after registration.
+- Ownership (`Robot.parent`) is set only server-side from the authenticated
+  session during pairing — client-supplied `parent_id`/`owner_id` are
+  ignored. Detail reads filter by owner (404 for everything else).
+- Registration is unauthenticated in Phase 6 (device has no credentials
+  yet); duplicate `device_id` → 409. Phase 7 adds challenge/token auth on the
+  stored public key.
+- `AuditLog` rows: `robot.registered` (actor null) and `robot.paired`
+  (actor = pairing user), target = robot id only.
+
+## Phase 6 out of scope (unchanged later-phase boundaries)
+
+No device JWT/challenge auth (Phase 7), no MQTT (Phase 8), no conversation/AI
+processing (Phase 9–12), no OTA execution, no dashboards, no firmware.

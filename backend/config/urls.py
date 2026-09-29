@@ -13,4 +13,5 @@ urlpatterns = [
         name="login",
     ),
     path("api/v1/", include("accounts.urls")),
+    path("api/v1/", include("devices.urls")),
 ]

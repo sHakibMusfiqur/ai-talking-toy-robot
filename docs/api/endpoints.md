@@ -98,3 +98,75 @@ Partial update; any subset of `first_name`, `age_band`, `language`.
 - `GET /login/` — Django login form (field `username` holds the email), CSRF
   protected; authenticates via the session and redirects to `/`.
 - `GET /` — `302` → `/login/` (anonymous) or `/health` (authenticated).
+
+---
+
+# Phase 6 API Reference (devices)
+
+Same base path, auth, ID, and error conventions as Phase 5.
+
+### `POST /api/v1/devices/register/`
+
+Device self-registration (Flow 4). **Unauthenticated by design** — the device
+has no credentials yet; Phase 7 layers challenge/token auth on the stored
+public key.
+
+Request:
+
+```json
+{"device_id": "<uuid>", "public_key": "-----BEGIN PUBLIC KEY-----...", "firmware_version": "1.2.3"}
+```
+
+- `201` → `{"id", "device_id", "pairing_status", "pairing_code"}` — the raw
+  pairing code is returned **exactly once** to the registering device
+- `400` → `{"device_id": [...]}` invalid UUID / `{"public_key": [...]}` not
+  PEM (`-----BEGIN PUBLIC KEY-----` … `-----END PUBLIC KEY-----`)
+- `409` → `{"detail": "Device already registered."}` — duplicate `device_id`
+  never re-issues a pairing code
+
+`device_id` is normalized to lowercase canonical UUID form. `POST
+/api/v1/devices/register` (no trailing slash) is also accepted: the Phase 6
+spec writes the path without a slash while Phase 5 convention uses one, and a
+POST redirect would be unsafe, so both resolve directly.
+
+### `POST /api/v1/devices/pair/`
+
+Dashboard-side pairing — authenticated session required (parent account).
+Claims **exactly one** robot by entering that robot's own pairing code.
+
+Request (client-supplied `parent_id`/`owner_id` are ignored; ownership comes
+from the session):
+
+```json
+{"pairing_code": "K7M2QX9B", "nickname": "Ayaan's Robo"}
+```
+
+- `200` → robot object (`{"id", "device_id", "nickname", "pairing_status",
+  "firmware_version", "last_seen", "paired_at"}`) — no secrets
+- `400` → `{"detail": "Invalid pairing code."}` — **identical** for invalid,
+  expired, and already-used codes (single-use; no replay; no information leak)
+- `401` unauthenticated, `403` CSRF failure
+
+Pairing is explicit, per-robot, and non-cascading: pairing Robot A grants no
+access to Robot B; each robot needs its own pairing operation. Codes are
+8 characters from a 31-symbol unambiguous alphabet, valid 900 s
+(`DEVICE_PAIRING_CODE_LENGTH`, `DEVICE_PAIRING_CODE_TTL_SECONDS`), stored
+SHA-256-hashed only, consumed atomically. `POST /api/v1/devices/pair` (no
+trailing slash) is also accepted.
+
+### `GET /api/v1/devices/`
+
+Admin-only fleet list (role `admin`).
+
+- `200` → array of robot objects
+- `401` unauthenticated, `403` non-admin role (`{"detail": "Admin access
+  required."}`)
+
+### `GET /api/v1/devices/{id}/`
+
+Owner-scoped robot detail (Phase 6 decision: smallest endpoint that makes
+ownership boundaries observable; used by the control panel later).
+
+- `200` → robot object (paired to caller)
+- `404` → not owned, unknown, or malformed id (indistinguishable)
+- `405` → `PUT`/`PATCH`/`DELETE` are not in the Phase 6 contract

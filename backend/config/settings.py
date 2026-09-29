@@ -24,6 +24,13 @@ INSTALLED_APPS = [
     "rest_framework",
     "core.apps.CoreConfig",
     "accounts.apps.AccountsConfig",
+    "devices.apps.DevicesConfig",
+    "conversations.apps.ConversationsConfig",
+    "memory.apps.MemoryConfig",
+    "configuration.apps.ConfigurationConfig",
+    "firmware.apps.FirmwareConfig",
+    "safety.apps.SafetyConfig",
+    "analytics.apps.AnalyticsConfig",
 ]
 
 MIGRATION_MODULES = {
@@ -100,6 +107,13 @@ STATIC_URL = "static/"
 DEFAULT_AUTO_FIELD = "django_mongodb_backend.fields.ObjectIdAutoField"
 
 LOGIN_URL = "/login/"
+
+# Device pairing codes (Phase 6): configuration-driven, never scattered
+# as magic constants. Codes are short-lived and single-use (docs/01 Phase 6).
+DEVICE_PAIRING_CODE_LENGTH = int(os.environ.get("DEVICE_PAIRING_CODE_LENGTH", "8"))
+DEVICE_PAIRING_CODE_TTL_SECONDS = int(
+    os.environ.get("DEVICE_PAIRING_CODE_TTL_SECONDS", "900")
+)
 
 LOGIN_REDIRECT_URL = "/"
 
