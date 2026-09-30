@@ -42,6 +42,9 @@ services:
       DJANGO_SECRET_KEY: ${DJANGO_SECRET_KEY:?DJANGO_SECRET_KEY must be set in .env}
       DJANGO_DEBUG: "false"
       DJANGO_ALLOWED_HOSTS: "localhost,127.0.0.1"
+      DEVICE_JWT_SECRET: ${DEVICE_JWT_SECRET:?DEVICE_JWT_SECRET must be set in .env}
+      DEVICE_JWT_TTL_SECONDS: ${DEVICE_JWT_TTL_SECONDS:-3600}
+      DEVICE_CHALLENGE_TTL_SECONDS: ${DEVICE_CHALLENGE_TTL_SECONDS:-60}
       MONGO_HOST: "mongodb://mongo:27017/?replicaSet=rs0"
       MONGO_DB_NAME: "ai_talking_toy"
       MQTT_HOST: "mosquitto"
