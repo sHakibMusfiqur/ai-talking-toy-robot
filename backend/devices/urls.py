@@ -12,4 +12,9 @@ urlpatterns = [
     path("devices/me/", views.DeviceIdentityView.as_view(), name="api-device-me"),
     path("devices/", views.AdminRobotListView.as_view(), name="api-devices"),
     path("devices/<str:pk>/", views.RobotDetailView.as_view(), name="api-robot-detail"),
+    path(
+        "devices/<str:pk>/command/",
+        views.RobotCommandView.as_view(),
+        name="api-robot-command",
+    ),
 ]

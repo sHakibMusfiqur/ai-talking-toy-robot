@@ -14,6 +14,28 @@ services:
       retries: 24
       start_period: 10s
 
+  mosquitto:
+    image: eclipse-mosquitto:2
+    ports:
+      - "1883:1883"
+    environment:
+      MOSQUITTO_DYNSEC_PASSWORD: ${MQTT_ADMIN_PASSWORD:?MQTT_ADMIN_PASSWORD must be set in .env}
+    volumes:
+      - ./mosquitto/mosquitto.conf:/mosquitto/config/mosquitto.conf:ro
+      - ./mosquitto/docker-entrypoint.sh:/docker-entrypoint.sh:ro
+      - mosquitto_data:/mosquitto/data
+    entrypoint: ["/bin/sh", "/docker-entrypoint.sh"]
+    healthcheck:
+      test:
+        [
+          "CMD-SHELL",
+          "mosquitto_ctrl -h 127.0.0.1 -u admin -P \"$${MOSQUITTO_DYNSEC_PASSWORD}\" dynsec listRoles >/dev/null 2>&1",
+        ]
+      interval: 10s
+      timeout: 5s
+      retries: 12
+      start_period: 10s
+
   django:
     build: ../backend
     environment:
@@ -22,12 +44,21 @@ services:
       DJANGO_ALLOWED_HOSTS: "localhost,127.0.0.1"
       MONGO_HOST: "mongodb://mongo:27017/?replicaSet=rs0"
       MONGO_DB_NAME: "ai_talking_toy"
+      MQTT_HOST: "mosquitto"
+      MQTT_PORT: "1883"
+      MQTT_BRIDGE_USERNAME: "django-service"
+      MQTT_BRIDGE_PASSWORD: ${MQTT_BRIDGE_PASSWORD:?MQTT_BRIDGE_PASSWORD must be set in .env}
+      MQTT_ADMIN_USERNAME: "admin"
+      MQTT_ADMIN_PASSWORD: ${MQTT_ADMIN_PASSWORD:?MQTT_ADMIN_PASSWORD must be set in .env}
     ports:
       - "8000:8000"
     depends_on:
       mongo:
         condition: service_healthy
+      mosquitto:
+        condition: service_healthy
     command: ["sh", "-c", "python manage.py migrate && python manage.py runserver 0.0.0.0:8000"]
 
 volumes:
   mongo_data:
+  mosquitto_data:

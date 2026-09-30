@@ -247,3 +247,72 @@ cannot switch context).
 Pairing is deliberately **not** required to authenticate: the token proves
 machine identity, pairing proves ownership. An unpaired robot can call
 `me/` and sees `pairing_status: "unpaired"`.
+
+# Phase 8 API Reference (MQTT command origin)
+
+## `POST /api/v1/devices/{id}/command/`
+
+Session-authenticated command publish (Section 26: parent/admin as the
+authenticated, ownership-checked origin). The view validates the envelope
+and calls `mqtt_bridge.publish_command`; it never touches the MQTT client
+directly. Publishes to `robots/{device_id}/command` (QoS 1, not retained).
+
+Request body:
+
+```json
+{"action": "wave"}
+```
+
+- `action`: 1-64 chars, `[A-Za-z0-9_.-]` only; no other fields allowed
+  (Phase 8 is mechanical delivery only - Phase 13 defines semantics).
+- `200` - `{"detail": "Command published."}` (broker accepted the publish;
+  device-side execution ack arrives later as an `event`, never here)
+- `400` - missing/blank/invalid `action`, non-string action, extra fields
+- `401` - unauthenticated, **or** a device Bearer token (this endpoint is
+  session-only: device tokens cannot drive the command channel)
+- `404` - malformed id, unknown robot, or robot not owned by the caller
+  (admins may command any robot; parents only their own - identical 404
+  for unknown vs not-owned)
+- `405` - any method other than POST
+- `503` - `{"detail": "Robot command service unavailable."}` (MQTT transport
+  failure; nothing was delivered)
+
+## MQTT topic contract (frozen, Section 11.1)
+
+| Topic | Publisher | Subscriber | QoS | Retained |
+|---|---|---|---|---|
+| `robots/{device_id}/status` | device | django-service | 1 | yes |
+| `robots/{device_id}/heartbeat` | device (LWT-backed) | django-service | 0 | no |
+| `robots/{device_id}/event` | device | django-service | 1 | no |
+| `robots/{device_id}/command` | django-service | device | 1 | no |
+| `robots/{device_id}/config/notify` | django-service | device | 1 | yes |
+| `robots/{device_id}/ota/notify` | django-service | device | 1 | yes |
+| `robots/{device_id}/content/notify` | django-service | device | 1 | yes |
+
+Payloads (validated strictly, unknown fields rejected, identity always
+comes from the topic - never the payload):
+
+- `status`: `{"online": bool, "state": str<=32, "battery_percent": 0-100,
+  "rssi": -300..300}` - any subset; omitted fields keep prior values.
+- `heartbeat`: empty or `{}` (Section 11 defines no fields; any field is
+  rejected until the frozen contract adds one).
+- `event`: `{"event_type": "[A-Za-z0-9_.-]{1,64}", "payload": {object}}`.
+- `command`: `{"action": "<name>"}`.
+- `*/notify`: `{"version": <int>=0}` (retained version marker).
+- LWT: `{"online": false}` (retained, device-set at connect).
+
+## Broker authorization (Section 11.2, enforced by Mosquitto dynsec)
+
+- Device client: username = `device_id`, password = the device's current
+  Phase 7 JWT (provisioned at token exchange, rotated on each exchange,
+  best-effort - exchange never fails when the broker is down).
+- `device` role: publish only `robots/%u/{status,heartbeat,event}`;
+  subscribe/receive only `robots/%u/{command,config/notify,ota/notify,
+  content/notify}`.
+- `django-service` role: publish only `robots/+/{command,config/notify,
+  ota/notify,content/notify}`; subscribe/receive only
+  `robots/+/{status,heartbeat,event}`.
+- Defaults deny publish/subscribe/receive; no client ever holds a `#`
+  publish right; `allow_anonymous false`. Cross-device publishes are
+  **dropped by the broker** (delivery-based tests), subscribe denials
+  return SUBACK 0x80, credential failures return CONNACK "Not authorised".

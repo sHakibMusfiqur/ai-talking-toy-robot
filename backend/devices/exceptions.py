@@ -33,3 +33,12 @@ class InvalidDeviceCredentials(APIException):
     status_code = status.HTTP_401_UNAUTHORIZED
     default_detail = "Invalid credentials."
     default_code = "invalid_device_credentials"
+
+
+class RobotCommandUnavailable(APIException):
+    """MQTT transport failure while publishing a command (Phase 8): the
+    command was not accepted by the broker, so nothing was delivered."""
+
+    status_code = status.HTTP_503_SERVICE_UNAVAILABLE
+    default_detail = "Robot command service unavailable."
+    default_code = "robot_command_unavailable"

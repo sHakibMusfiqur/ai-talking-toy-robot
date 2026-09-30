@@ -196,3 +196,90 @@ devices/permissions.py    + DeviceAuthenticated
 No MQTT (Phase 8), no conversation/AI processing (Phase 9–12), no OTA
 execution, no dashboards, no firmware implementation, no rate limiting of
 auth endpoints (Phase 19).
+
+## Phase 8 MQTT bridge (Sections 11, 12.2)
+
+`backend/mqtt_bridge/` is a thin translation layer (one process command:
+`manage.py run_mqtt_bridge`):
+
+- `topics.py` - the ONLY place topic strings are built/parsed (frozen
+  Section 11.1 shapes; wildcard/slash device ids rejected; QoS/retain
+  constants asserted against the plan literals by tests).
+- `payloads.py` - strict inbound/outbound payload validation (unknown
+  fields rejected, JSON types enforced without coercion, 8 KiB cap).
+- `client.py` - paho-mqtt 2.1.0 wrapper (CallbackAPIVersion.VERSION2),
+  bounded connect/publish timeouts, auto-reconnect with
+  `reconnect_delay_set(min,max)`, deterministic `backoff_delay()` for
+  initial connect, `simulate_network_drop()` test hook.
+- `provisioning.py` - dynsec control API (`$CONTROL/dynamic-security/v1`,
+  `{"commands": [...]}` request / `responses` reply) using short-lived
+  admin clients; `ensure_device_client` (create/rotate + `device` role)
+  and `ensure_bridge_client` (`django-service` role).
+- `subscriber.py` - broker -> validate -> `devices.services` calls only
+  (`update_status` / `record_heartbeat` / `record_robot_event`) - the
+  same single write path Section 12.2 mandates for REST; never writes
+  models directly, never logs raw payloads, drops malformed/unknown-device
+  messages with topic/category-only warnings.
+- `publisher.py` - lazy singleton; views/services call
+  `publish_command(robot, payload)` and `publish_{config,ota,content}_notify(robot, version)`.
+
+New service functions in `devices/services.py` (single write path for both
+transports): `update_status` (partial update, refreshes `last_seen`),
+`record_heartbeat` (marks online + `last_seen`), `record_robot_event`
+(creates `RobotEvent` + `last_seen`). The Phase 7 token exchange now calls
+`_provision_mqtt_client(device_id, token)` OUTSIDE its transaction
+(network I/O never holds a Mongo transaction open) and swallows failures
+(token exchange never fails because the broker is unavailable).
+
+`POST /api/v1/devices/{id}/command/` (`devices.views.RobotCommandView`)
+is the Phase 8 command origin: session-only, owner-scoped (admins any
+robot), 404 for unknown/not-owned, 503 on MQTT transport failure
+(`RobotCommandUnavailable`).
+
+Infrastructure: `infra/mosquitto/` (mosquitto.conf + idempotent
+docker-entrypoint.sh role bootstrap via `mosquitto_ctrl`), Compose service
+with `MOSQUITTO_DYNSEC_PASSWORD: ${MQTT_ADMIN_PASSWORD}` and a
+`mosquitto_ctrl dynsec listRoles` healthcheck; settings gained `MQTT_*`
+(host/port, bridge+admin credentials, reconnect bounds, timeouts).
+
+Tests (87 new, all against the live broker - no mocked ACL): delivery-
+based cross-device negatives (a denied QoS-1 publish may still PUBACK but
+is never delivered), SUBACK 0x80 subscribe denials, LWT offline ingestion
+through `update_status`, reconnect/resubscribe (socket drop + full
+`docker restart` of the broker), strict payload rejection, service-layer
+routing spies, REST authorization matrix, and Section 26 end-to-end
+(JWT usable as MQTT password immediately after exchange). Under pytest
+only, `settings.py` loads `MQTT_*` defaults from the repo-root `.env`.
+
+## Phase 8 decisions (recorded, 2026-09-30)
+
+1. **Token-derived MQTT credentials (Section 26)**: username = `device_id`,
+   password = the current device JWT; broker user provisioned best-effort at
+   token exchange (create/rotate + role). No new credential material appears
+   in any API response; rotation = next exchange.
+2. **clientId is not pinned** to `device_id` by the backend (ACL scoping is
+   username-based); firmware may choose any unique client id.
+3. **Deny-by-default receive** (`setDefaultACLAccess publishClientReceive
+   deny`) plus explicit denies for send/subscribe in the role bootstrap.
+4. **Denied-publish semantics**: Mosquitto may PUBACK a `publishClientSend`
+   violation and still drop the message - all security assertions are
+   delivery-based (plus SUBACK codes / CONNACK refusals), never PUBACK-based.
+5. **Command envelope** is `{"action": str}` only (mechanical); Phase 13
+   defines action semantics. Commands are logged/acked, never executed.
+6. **Heartbeat payload contract**: empty/`{}` only, per the frozen Section 11
+   (rejects unknown fields rather than silently ignoring them).
+7. **Strict JSON types** for status/command payloads (no DRF coercion, e.g.
+   `"yes"` is not a boolean, `123` is not an action string).
+8. **Session-only command endpoint**: device Bearer tokens are rejected from
+   `/command/` (401) - humans on the dashboard are the command origin.
+9. **QoS/retain exactly per Section 11.1** - asserted as contract tests so
+   drift fails the suite.
+
+## Phase 8 out of scope (unchanged later-phase boundaries)
+
+No firmware `network/mqtt` implementation (Part 1, separately owned -
+firmware must connect with `device_id` credentials, set the retained
+LWT, re-subscribe and re-publish status on reconnect); no command
+execution/actions (Phase 13); no dashboard UI for status (Phase 17); no
+OTA/config/content payload design beyond the notify version marker
+(Phases 14-16); no AI/conversation integration (Phase 11).

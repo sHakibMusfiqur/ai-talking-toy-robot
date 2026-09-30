@@ -101,3 +101,9 @@ docker compose --env-file .env -f infra/docker-compose.yml up -d --build
 - Hard rules: ObjectIds as JSON strings (no integer counters); non-owned resources return 404, never 403; identical 401 bodies for login failures (no existence leak); `GET /health` (no trailing slash) returns 200 directly; session cookie + CSRF for authenticated writes; ownership never settable by client input; no secrets committed (`.env` git-ignored).
 - Use `django_mongodb_backend.transaction.atomic()` for multi-document writes (Django's `django.db.transaction` is unsupported on this backend).
 - Phase 5 acceptance: `pytest` (41 tests) green + `manage.py check` clean before any phase report. No linter is configured yet (dev deps = pytest only) — add one and record its command here if introduced.
+
+### Phase 8 additions (2026-09-30)
+
+- Live services required before `pytest` (87 tests exercise the real Mosquitto broker; Mongo replica set needed for transactions): `docker compose --env-file .env -f infra/docker-compose.yml up -d mongo mosquitto`.
+- Full suite after Phase 8: **223 tests** green (136 baseline + 87 new). Acceptance = `pytest` green + `manage.py check` clean + `git diff --check` clean + HEAD still `371e3f0` (never commit/stage/push; user's client commits).
+- Bridge process (manual, not part of tests): `.\.venv\Scripts\python.exe backend\manage.py run_mqtt_bridge` (uses `MQTT_*` from `.env`). Mosquitto role bootstrap is idempotent via `infra/mosquitto/docker-entrypoint.sh`.

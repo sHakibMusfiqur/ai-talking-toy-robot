@@ -2,6 +2,7 @@ import base64
 import binascii
 import hashlib
 import hmac
+import logging
 import secrets
 import uuid
 from datetime import timedelta
@@ -27,8 +28,10 @@ from .exceptions import (
     InvalidPairingCode,
     InvalidPublicKey,
 )
-from .models import DeviceChallenge, DeviceCredential, Robot
+from .models import DeviceChallenge, DeviceCredential, Robot, RobotEvent, RobotState
 from .tokens import issue_device_token
+
+logger = logging.getLogger(__name__)
 
 # No vowels/ambiguous glyphs (0/O, 1/I/L) — codes are transcribed by humans.
 PAIRING_CODE_ALPHABET = "ABCDEFGHJKMNPQRSTUVWXYZ23456789"
@@ -221,7 +224,87 @@ def exchange_device_token(*, device_id, challenge_id, challenge, signature, ip=N
             target=str(robot.pk),
             ip=ip,
         )
+
+    # Phase 8: broker provisioning happens OUTSIDE the transaction (network
+    # I/O must not hold a Mongo transaction open) and is best-effort — a
+    # broker outage never fails token exchange; the device retries later.
+    _provision_mqtt_client(device_id, token)
     return token, ttl
+
+
+def _provision_mqtt_client(device_id, token):
+    """Section 26 token-derived MQTT credentials: the device's broker password
+    is the JWT just issued to it (username = device_id). Failure is logged
+    and swallowed — provisioning is an availability concern, never an
+    authentication concern."""
+    try:
+        from mqtt_bridge.provisioning import ensure_device_client
+
+        ensure_device_client(device_id, token)
+    except Exception:
+        logger.warning(
+            "mqtt provisioning skipped for device",
+            extra={"device_id": device_id},
+            exc_info=True,
+        )
+
+
+def update_status(*, robot, online=None, state=None, battery_percent=None, rssi=None):
+    """Single write path for device status (Section 12.2): used by REST and
+    by MQTT ingestion alike. Partial-update semantics — None means "not
+    reported in this payload, keep previous value". Every status update
+    refreshes last_seen."""
+    now = timezone.now()
+    with transaction.atomic():
+        state_obj, _ = RobotState.objects.get_or_create(robot=robot)
+        changed = False
+        for field, value in (
+            ("online", online),
+            ("state", state),
+            ("battery_percent", battery_percent),
+            ("rssi", rssi),
+        ):
+            if value is not None:
+                setattr(state_obj, field, value)
+                changed = True
+        if changed:
+            state_obj.save()
+        robot.last_seen = now
+        robot.save(update_fields=["last_seen"])
+    return state_obj
+
+
+def record_heartbeat(*, robot):
+    """Heartbeat = proof of life: robot is online now (Section 11.2)."""
+    now = timezone.now()
+    with transaction.atomic():
+        state_obj, _ = RobotState.objects.get_or_create(robot=robot)
+        if not state_obj.online:
+            state_obj.online = True
+            state_obj.save(update_fields=["online"])
+        robot.last_seen = now
+        robot.save(update_fields=["last_seen"])
+    return state_obj
+
+
+def record_robot_event(*, robot, event_type, payload=None):
+    """Lifecycle/error/safety events from the robot (Section 11.1). The
+    payload is already validated at the transport boundary; this guard is
+    the service-level contract for any other caller."""
+    if not isinstance(event_type, str) or not event_type.strip():
+        raise ValueError("event_type is required")
+    if payload is None:
+        payload = {}
+    if not isinstance(payload, dict):
+        raise ValueError("payload must be a dict")
+    now = timezone.now()
+    with transaction.atomic():
+        event = RobotEvent.objects.create(
+            robot=robot, event_type=event_type, payload=payload
+        )
+        robot.last_seen = now
+        robot.save(update_fields=["last_seen"])
+    return event
 
 
 def _audit_auth_failure(action, robot, ip):

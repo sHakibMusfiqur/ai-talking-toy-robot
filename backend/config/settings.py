@@ -1,7 +1,31 @@
 import os
+import sys
 from pathlib import Path
 
 BASE_DIR = Path(__file__).resolve().parent.parent
+
+
+def _load_pytest_mqtt_env():
+    """Phase 8 tests talk to the real Mosquitto broker, so MQTT_* credentials
+    come from the repo-root .env when running under pytest (Compose passes
+    them as environment in containerized runs; plain manage.py runs are
+    unchanged). Only MQTT_* keys, only as defaults, only under pytest."""
+    if "pytest" not in sys.modules:
+        return
+    env_file = BASE_DIR.parent / ".env"
+    if not env_file.is_file():
+        return
+    for line in env_file.read_text(encoding="utf-8").splitlines():
+        line = line.strip()
+        if not line or line.startswith("#") or "=" not in line:
+            continue
+        key, _value = line.split("=", 1)
+        key = key.strip()
+        if key.startswith("MQTT_"):
+            os.environ.setdefault(key, _value.strip())
+
+
+_load_pytest_mqtt_env()
 
 SECRET_KEY = os.environ.get("DJANGO_SECRET_KEY", "insecure-development-only-set-dj-secret-key")
 
@@ -31,6 +55,7 @@ INSTALLED_APPS = [
     "firmware.apps.FirmwareConfig",
     "safety.apps.SafetyConfig",
     "analytics.apps.AnalyticsConfig",
+    "mqtt_bridge.apps.MqttBridgeConfig",
 ]
 
 MIGRATION_MODULES = {
@@ -125,6 +150,28 @@ DEVICE_JWT_ISSUER = os.environ.get("DEVICE_JWT_ISSUER", "ai-talking-toy-backend"
 DEVICE_JWT_AUDIENCE = os.environ.get("DEVICE_JWT_AUDIENCE", "ai-talking-toy-robot")
 DEVICE_CHALLENGE_TTL_SECONDS = int(
     os.environ.get("DEVICE_CHALLENGE_TTL_SECONDS", "60")
+)
+
+# MQTT bridge (Phase 8, Section 11/12.2): the django-service client's exact
+# publish/subscribe rights live in infra/mosquitto role definitions; admin
+# credentials only provision dynsec users (device password = its JWT).
+MQTT_HOST = os.environ.get("MQTT_HOST", "localhost")
+MQTT_PORT = int(os.environ.get("MQTT_PORT", "1883"))
+MQTT_BRIDGE_USERNAME = os.environ.get("MQTT_BRIDGE_USERNAME", "django-service")
+MQTT_BRIDGE_PASSWORD = os.environ.get("MQTT_BRIDGE_PASSWORD", "")
+MQTT_ADMIN_USERNAME = os.environ.get("MQTT_ADMIN_USERNAME", "admin")
+MQTT_ADMIN_PASSWORD = os.environ.get("MQTT_ADMIN_PASSWORD", "")
+MQTT_RECONNECT_MIN_DELAY_SECONDS = int(
+    os.environ.get("MQTT_RECONNECT_MIN_DELAY_SECONDS", "1")
+)
+MQTT_RECONNECT_MAX_DELAY_SECONDS = int(
+    os.environ.get("MQTT_RECONNECT_MAX_DELAY_SECONDS", "60")
+)
+MQTT_CONNECT_TIMEOUT_SECONDS = float(
+    os.environ.get("MQTT_CONNECT_TIMEOUT_SECONDS", "10")
+)
+MQTT_PUBLISH_TIMEOUT_SECONDS = float(
+    os.environ.get("MQTT_PUBLISH_TIMEOUT_SECONDS", "5")
 )
 
 LOGIN_REDIRECT_URL = "/"

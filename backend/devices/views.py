@@ -7,8 +7,12 @@ from rest_framework.views import APIView
 
 from accounts.models import Parent
 from core.permissions import AuthRequired, IsAdminRole
+from mqtt_bridge.client import MqttError
+from mqtt_bridge.payloads import DeviceCommandSerializer
+from mqtt_bridge.publisher import publish_command
 
 from .authentication import DeviceJWTAuthentication
+from .exceptions import RobotCommandUnavailable
 from .models import Robot
 from .permissions import DeviceAuthenticated
 from .serializers import (
@@ -168,6 +172,40 @@ class RobotDetailView(APIView):
         if robot is None:
             raise NotFound()
         return Response(RobotSerializer(robot).data)
+
+
+class RobotCommandView(APIView):
+    """Phase 8 command origin (Section 26): a parent (own robot only) or
+    admin (role-scoped, any robot) publishes a mechanical command envelope
+    through mqtt_bridge.publish_command — the view never touches the MQTT
+    client itself. Non-owned/unknown/malformed ids are indistinguishable
+    (404). Device Bearer tokens are not accepted here (session-only view):
+    commands originate from authenticated, ownership-checked humans."""
+
+    permission_classes = [AuthRequired]
+    http_method_names = ["post"]
+
+    def post(self, request, pk):
+        if not isinstance(pk, str) or not ObjectId.is_valid(pk):
+            raise NotFound()
+        parent = _get_parent(request)
+        filters = {"pk": ObjectId(pk)}
+        if request.user.role != "admin":
+            filters["parent"] = parent
+        robot = Robot.objects.filter(**filters).first()
+        if robot is None:
+            raise NotFound()
+
+        serializer = DeviceCommandSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        try:
+            publish_command(robot, serializer.validated_data)
+        except MqttError:
+            raise RobotCommandUnavailable()
+        return Response(
+            {"detail": "Command published."},
+            status=status.HTTP_200_OK,
+        )
 
 
 class AdminRobotListView(APIView):
