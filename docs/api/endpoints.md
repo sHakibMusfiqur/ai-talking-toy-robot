@@ -178,19 +178,19 @@ device signed-challenge ? JWT exchange (AR-9/AR-10). Two fully separate auth
 domains now exist:
 
 - **Humans**: session cookie + CSRF (unchanged; no human JWT in Phase 7).
-- **Devices**: `Authorization: Bearer <device JWT>` — accepted only on
+- **Devices**: `Authorization: Bearer <device JWT>` ï¿½ accepted only on
   device-facing views; never on human endpoints, and sessions are never
   accepted on device endpoints.
 
 Every device credential failure returns the **same** `401 {"detail": "Invalid
-credentials."}` — unknown device, unknown/expired/replayed challenge, bad
-signature, malformed/expired/tampered token — with no timing or content
+credentials."}` ï¿½ unknown device, unknown/expired/replayed challenge, bad
+signature, malformed/expired/tampered token ï¿½ with no timing or content
 distinction about stored state.
 
 ### `POST /api/v1/devices/auth/challenge/`
 
 Step 1: request a short-lived server nonce. **No token required** (the device
-proves nothing yet) — but `device_id` must belong to a registered robot.
+proves nothing yet) ï¿½ but `device_id` must belong to a registered robot.
 
 Request:
 
@@ -198,10 +198,10 @@ Request:
 {"device_id": "<uuid>"}
 ```
 
-- `200` ? `{"challenge_id", "challenge", "expires_in"}` — raw challenge is
+- `200` ? `{"challenge_id", "challenge", "expires_in"}` ï¿½ raw challenge is
   returned exactly once; only its SHA-256 hash is stored
 - `400` ? `{"device_id": [...]}` malformed UUID
-- `401` ? `{"detail": "Invalid credentials."}` — identical for unknown and
+- `401` ? `{"detail": "Invalid credentials."}` ï¿½ identical for unknown and
   malformed-UUID-after-normalization device ids
 
 Challenges expire after `DEVICE_CHALLENGE_TTL_SECONDS` (default 60 s) and
@@ -222,10 +222,10 @@ Request:
 {"device_id": "<uuid>", "challenge_id": "<objectid>", "challenge": "<hex>", "signature": "<base64>"}
 ```
 
-- `200` ? `{"access_token", "token_type": "Bearer", "expires_in"}` — the
+- `200` ? `{"access_token", "token_type": "Bearer", "expires_in"}` ï¿½ the
   token is the only secret in the response
 - `400` ? missing/blank fields, malformed `device_id`
-- `401` ? `{"detail": "Invalid credentials."}` — uniform across all faults;
+- `401` ? `{"detail": "Invalid credentials."}` ï¿½ uniform across all faults;
   challenges are single-use (replay ? 401), consumed atomically
 
 JWT: HS256, claims `sub` = robot ObjectId, `iss`/`aud` from settings, `iat`,
@@ -234,11 +234,11 @@ JWT: HS256, claims `sub` = robot ObjectId, `iss`/`aud` from settings, `iat`,
 ### `GET /api/v1/devices/me/`
 
 Authenticated device reads exactly its own robot identity (the principal
-comes solely from the token — client-supplied ids in query/body/headers
+comes solely from the token ï¿½ client-supplied ids in query/body/headers
 cannot switch context).
 
 - `200` ? robot object (same shape as Phase 6; no parent/owner or credential
-  fields — pairing status is included but never the parent)
+  fields ï¿½ pairing status is included but never the parent)
 - `401` ? missing header (`{"detail": "Authentication credentials were not
   provided."}`) or any invalid token (`{"detail": "Invalid credentials."}`);
   `WWW-Authenticate: Bearer` is included
@@ -316,3 +316,73 @@ comes from the topic - never the payload):
   publish right; `allow_anonymous false`. Cross-device publishes are
   **dropped by the broker** (delivery-based tests), subscribe denials
   return SUBACK 0x80, credential failures return CONNACK "Not authorised".
+
+# Phase 9 Internal AI Service Reference
+
+Base URL (compose network only): `http://ai-service:8000` - not published
+on any host port. All request/response bodies are strict JSON: unknown
+fields, wrong types, and text/audio contract violations return `422`
+(`{"detail": [ ... ]}`).
+
+## `GET /health`
+
+Unauthenticated readiness probe (Section 28).
+
+- `200` -> `{"status": "ok"}`
+
+## `POST /v1/conversation/turn`
+
+Internal service-to-service endpoint (Section 15). Requires
+`Authorization: Bearer $AI_SERVICE_INTERNAL_TOKEN`.
+
+Request (AI Input Contract, Section 15.2):
+
+```json
+{
+  "conversation_id": "â€¦",
+  "child_profile_id": "â€¦",
+  "robot_id": "â€¦",
+  "text": "Hello",
+  "audio": null,
+  "language_hint": "en|bn|auto",
+  "context": {
+    "recent_turns": [{"role": "user", "text": "â€¦"}],
+    "memories": [{"key": "â€¦", "value": "â€¦"}]
+  },
+  "mode": "conversation|story|quiz"
+}
+```
+
+- Exactly one of `text` (string) or `audio` (base64 string) is required -
+  both or neither -> `422`.
+- `context` is pre-fetched by Django (AR-5b): this service never reads the
+  database.
+
+Response (AI Output Contract, Section 15.3):
+
+```json
+{
+  "conversation_id": "â€¦",
+  "text": "Hello! I am happy to talk with you.",
+  "language": "en|bn",
+  "emotion": "HAPPY|CURIOUS|THINKING|CONCERNED|NEUTRAL",
+  "action": "WAVE|NOD|TILT_HEAD|IDLE|POINT|LISTENING_RETRY",
+  "safety": {"flagged": false, "category": null, "action_taken": "ALLOWED"},
+  "audio": null,
+  "memory_writes": []
+}
+```
+
+- `emotion`/`action` are semantic only - no servo/motor/GPIO/PWM/pin data
+  ever appears (Section 19 / AR-17).
+- `audio` is `null` while TTS is stubbed (Phase 9).
+
+Errors:
+
+- `401` - missing/malformed/invalid token; identical body every time:
+  `{"detail": "Unauthorized."}` with `WWW-Authenticate: Bearer`
+  (auth is checked before body validation, so an unauthenticated call
+  never returns `422`).
+- `422` - contract violation (unknown field, wrong type, text/audio XOR).
+- `500` - controlled failure only: `{"detail": "Internal server error."}`;
+  no stack traces, paths, or secrets are ever returned.

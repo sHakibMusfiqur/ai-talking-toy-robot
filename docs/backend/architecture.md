@@ -283,3 +283,80 @@ LWT, re-subscribe and re-publish status on reconnect); no command
 execution/actions (Phase 13); no dashboard UI for status (Phase 17); no
 OTA/config/content payload design beyond the notify version marker
 (Phases 14-16); no AI/conversation integration (Phase 11).
+
+# Phase 9 AI Service Foundation (addendum)
+
+Standalone FastAPI service in `ai_service/` (Section 14.3 layout). Separate
+process/network from Django; Django remains the only component that talks
+to end users/devices, and from Phase 11 on the only component that calls
+this service.
+
+## Service surface
+
+- `GET /health` - readiness probe (Section 28), unauthenticated.
+- `POST /v1/conversation/turn` - internal AI endpoint (Section 15);
+  `Authorization: Bearer $AI_SERVICE_INTERNAL_TOKEN` required.
+- OpenAPI tag `internal`; global exception handler returns a controlled
+  `{"detail": "Internal server error."}` (no stack traces, paths, tokens).
+- Lifespan fails fast when `AI_SERVICE_INTERNAL_TOKEN` is unset; auth runs
+  before body validation, so unauthenticated requests always get `401`
+  (never `422`), with one uniform body across missing/malformed/invalid
+  token failures.
+
+## Stack & layout
+
+Python 3.11 + FastAPI + Pydantic v2, pinned in `ai_service/requirements.txt`
+(`fastapi==0.142.2`, `uvicorn==0.54.0`); dev/test in `requirements-dev.txt`
+(`httpx`, `pytest`). Flat top-level packages (`api/`, `contract/`, stage
+dirs) so `api.main:app` imports identically in the host venv and the
+container. Docker image `python:3.11.9-slim`, uvicorn on `0.0.0.0:8000`
+inside the compose network only - **no host port is published**; Django
+will reach `http://ai-service:8000` from Phase 11.
+
+## Contracts (documented concretizations of Section 15)
+
+- Input: strict `extra="forbid"` model; exactly one of `text` (string) or
+  `audio` (base64 string, validated) - both/neither = `422`;
+  `context` (pre-fetched recent turns + memories, AR-5b) required;
+  `language_hint` (`en|bn|auto`) and `mode` (`conversation|story|quiz`)
+  optional with defaults.
+- Output: exactly the 8 frozen fields; `safety` is the Section 15.3 object
+  (`flagged`/`category`/`action_taken`); `audio` is `null` while TTS is
+  stubbed; `memory_writes` is `[{key, value}]`.
+- Frozen enums: emotion `HAPPY|CURIOUS|THINKING|CONCERNED|NEUTRAL`, action
+  `WAVE|NOD|TILT_HEAD|IDLE|POINT|LISTENING_RETRY`, safety category
+  `PERSONAL_INFO_REQUEST|UNSAFE_TOPIC`, safety action
+  `ALLOWED|REDIRECTED|BLOCKED|ALLOWED_WITH_CAUTION`. Semantic-only: servo/
+  motor/GPIO/PWM/LED-pin keys are rejected by schema and scanned for in
+  tests.
+
+## Deterministic mock pipeline (Phase 9)
+
+`contract/pipeline.run_pipeline` orchestration with injectable stages
+(`PipelineStages`): STT -> understanding -> context -> safety(pre) ->
+LLM -> safety(post) -> emotion -> action -> assembler -> TTS stub.
+Deterministic mocks: transcript `"Hello"` (conf 0.99), fixed reply
+`"Hello! I am happy to talk with you."`, `HAPPY`/`WAVE`, audio `null`.
+Boundary fallbacks: STT confidence < 0.5 -> fixed listening-retry text,
+`NEUTRAL`/`LISTENING_RETRY`, `safety=null`, LLM skipped; any safety flag
+(pre or post) -> fixed redirect text, `NEUTRAL`/`IDLE`, LLM output
+discarded. Both safety stages are always routed (single audit path).
+
+## Phase 9 decisions (recorded, 2026-10-01)
+
+1. `AI_SERVICE_INTERNAL_TOKEN` env var, compared with `hmac.compare_digest`;
+   empty/missing env refuses to start (no development bypass).
+2. Audio travels as base64 in JSON for this internal endpoint; the contract
+   still enforces text XOR audio.
+3. `ALLOWED` added to `SafetyAction` so unflagged turns carry the full
+   Section 15.3 shape (`category` stays `null`).
+4. Network isolation test fixture denies external connects/DNS only and
+   allows loopback (asyncio's Windows event loop needs it).
+
+## Phase 9 out of scope (unchanged later-phase boundaries)
+
+No real STT/LLM/TTS provider, provider SDK, or API key (Phase 10); no
+language detection (`lang_detect/`, Phase 10); no Django integration -
+no `AIInteraction` persistence, no robot->Django->AI call path (Phase 11);
+no streaming/websockets/SSE; no MongoDB access from this service; no OTA,
+dashboard, or firmware work.
