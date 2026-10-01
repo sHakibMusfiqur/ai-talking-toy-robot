@@ -1,0 +1,144 @@
+name: CI
+
+on:
+  push:
+    branches:
+      - main
+  pull_request:
+    branches:
+      - main
+
+permissions:
+  contents: read
+
+jobs:
+  ai-service-tests:
+    name: AI service tests
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v7
+
+      - name: Set up Python 3.11
+        uses: actions/setup-python@v7
+        with:
+          python-version: "3.11"
+          cache: pip
+          cache-dependency-path: |
+            ai_service/requirements.txt
+            ai_service/requirements-dev.txt
+
+      - name: Install AI service dependencies
+        run: python -m pip install -r requirements-dev.txt
+        working-directory: ai_service
+
+      - name: Run AI service tests
+        working-directory: ai_service
+        env:
+          AI_SERVICE_INTERNAL_TOKEN: ${{ secrets.AI_SERVICE_INTERNAL_TOKEN }}
+        run: |
+          if [ -z "$AI_SERVICE_INTERNAL_TOKEN" ]; then
+            echo "::error::AI_SERVICE_INTERNAL_TOKEN secret is not configured"
+            exit 1
+          fi
+          python -m pytest
+
+  backend-tests:
+    name: Backend tests
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    env:
+      MONGO_HOST: mongodb://localhost:27017/?directConnection=true
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v7
+
+      - name: Generate ephemeral MQTT credentials
+        run: |
+          {
+            echo "MQTT_ADMIN_PASSWORD=$(openssl rand -hex 16)"
+            echo "MQTT_BRIDGE_PASSWORD=$(openssl rand -hex 16)"
+          } >> "$GITHUB_ENV"
+
+      - name: Start MongoDB 7.0 replica set rs0
+        run: |
+          docker run -d --name mongo --hostname mongo -p 127.0.0.1:27017:27017 \
+            -v "$GITHUB_WORKSPACE/infra/mongo/healthcheck.js:/healthcheck.js:ro" \
+            mongo:7.0 mongod --replSet rs0 --bind_ip_all
+          ready=0
+          for i in $(seq 1 60); do
+            if docker exec mongo mongosh --quiet --file /healthcheck.js >/dev/null 2>&1; then
+              ready=1
+              break
+            fi
+            sleep 2
+          done
+          if [ "$ready" -ne 1 ]; then
+            echo "::error::MongoDB replica set rs0 did not become ready"
+            docker logs mongo
+            exit 1
+          fi
+
+      - name: Start Mosquitto with repository bootstrap
+        run: |
+          docker run -d --name infra-mosquitto-1 -p 127.0.0.1:1883:1883 \
+            -e MOSQUITTO_DYNSEC_PASSWORD="$MQTT_ADMIN_PASSWORD" \
+            -v "$GITHUB_WORKSPACE/infra/mosquitto/mosquitto.conf:/mosquitto/config/mosquitto.conf:ro" \
+            -v "$GITHUB_WORKSPACE/infra/mosquitto/docker-entrypoint.sh:/docker-entrypoint.sh:ro" \
+            --entrypoint /bin/sh eclipse-mosquitto:2.1.2-alpine /docker-entrypoint.sh
+          ready=0
+          for i in $(seq 1 60); do
+            if docker logs infra-mosquitto-1 2>&1 | grep -q "roles ready"; then
+              ready=1
+              break
+            fi
+            sleep 2
+          done
+          if [ "$ready" -ne 1 ]; then
+            echo "::error::Mosquitto bootstrap did not become ready"
+            docker logs infra-mosquitto-1
+            exit 1
+          fi
+
+      - name: Set up Python 3.11
+        uses: actions/setup-python@v7
+        with:
+          python-version: "3.11"
+          cache: pip
+          cache-dependency-path: |
+            backend/requirements.txt
+            backend/requirements-dev.txt
+
+      - name: Install backend dependencies
+        run: python -m pip install -r requirements-dev.txt
+        working-directory: backend
+
+      - name: Run backend tests
+        run: python -m pytest
+        working-directory: backend
+
+  django-check:
+    name: Django check
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v7
+
+      - name: Set up Python 3.11
+        uses: actions/setup-python@v7
+        with:
+          python-version: "3.11"
+          cache: pip
+          cache-dependency-path: |
+            backend/requirements.txt
+            backend/requirements-dev.txt
+
+      - name: Install backend dependencies
+        run: python -m pip install -r requirements.txt
+        working-directory: backend
+
+      - name: Run Django system check
+        run: python manage.py check
+        working-directory: backend
