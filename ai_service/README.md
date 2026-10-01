@@ -47,3 +47,36 @@ cd ai_service
 ```
 docker compose --env-file .env -f infra/docker-compose.yml up -d --build ai-service
 ```
+
+##  provider-agnostic architecture
+
+Phase 10 currently provides provider-agnostic integration architecture
+and deterministic implementations. Real provider selection and provider
+implementation are intentionally deferred (owner decision).
+
+- Provider-capable stages: `interface.py` (Protocol) + `mock.py`
+  (deterministic) + `providers/` (empty, future adapters).
+- `safety/` exposes the fixed order via `pre.py` (pre-LLM) and
+  `post.py` (post-LLM, pre-TTS): unsafe LLM output never reaches TTS.
+- `lang_detect/` resolves per-utterance language deterministically
+  (hint first, then script detection); no library installed.
+- `config.py` (neutral `AI_{STT,LLM,TTS}_*` env keys), `retry.py`
+  (retry-once-with-backoff, offline-testable), `errors.py`
+  (`ProviderError`) drive provider-neutral failure handling with
+  contract-respecting fallbacks.
+
+### Safety (deterministic v1)
+
+- `safety/rules.py` `RuleBasedSafety` is the default safety stage:
+  fully offline rule engine, no provider/model/credential.
+- Two stages, fixed order (Section 14.2): pre-LLM check (flagged input
+  never reaches the LLM, answered with the approved redirect) and
+  post-LLM last gate before TTS (flagged draft replaced, never
+  spoken).
+- Frozen two-value taxonomy (Phase 0 contract): `PERSONAL_INFO_REQUEST`
+  (Section 17.1 hard rule, always blocked/redirected) and
+  `UNSAFE_TOPIC` (everything else in the Section 17.1 coverage list).
+  Bilingual pattern coverage (English + Bangla).
+- Fixture set and 100% gate: `docs/testing/child-safety-fixtures.json`
+  with history in `docs/testing/SAFETY-FIXTURE-RESULTS.md`; run
+  `pytest tests/test_safety_fixtures.py` from `ai_service/`.

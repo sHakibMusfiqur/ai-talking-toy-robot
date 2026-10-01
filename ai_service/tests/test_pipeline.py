@@ -13,10 +13,11 @@ from contract.pipeline import (
 from contract.schemas import AIInputContract
 from context.stub import RequestContext
 from emotion.mock import MockEmotion
+from lang_detect.mock import MockLangDetect
 from llm.mock import MockLlm
-from safety.base import SafetyResult
+from safety.interface import SafetyResult
 from safety.mock import MockSafety
-from stt.base import SttResult
+from stt.interface import SttResult
 from stt.mock import MockStt
 from tts.mock import MockTts
 from understanding.mock import MockUnderstanding
@@ -41,17 +42,20 @@ BANNED_PROVIDER_TOKENS = (
 )
 
 
-def _stages(safety, llm=None, understanding=None, stt=None) -> PipelineStages:
-    return PipelineStages(
-        stt=stt or MockStt(),
-        understanding=understanding or MockUnderstanding(),
+def _stages(safety, **overrides) -> PipelineStages:
+    stages = dict(
+        stt=MockStt(),
+        lang_detect=MockLangDetect(),
+        understanding=MockUnderstanding(),
         context=RequestContext(),
         safety=safety,
-        llm=llm or MockLlm(),
+        llm=MockLlm(),
         emotion=MockEmotion(),
         action=MockAction(),
         tts=MockTts(),
     )
+    stages.update(overrides)
+    return PipelineStages(**stages)
 
 
 def _payload(**overrides) -> AIInputContract:

@@ -1,6 +1,6 @@
 from context.base import ContextBundle
 
-from .base import LlmResult
+from .interface import LlmResult
 
 MOCK_REPLY = "Hello! I am happy to talk with you."
 

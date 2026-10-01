@@ -2,7 +2,7 @@ from typing import Optional
 
 from contract.enums import Emotion
 
-from .base import TtsStage  
+from .interface import TtsStage
 
 MOCK_AUDIO: Optional[str] = None
 

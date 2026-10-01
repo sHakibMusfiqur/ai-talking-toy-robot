@@ -1,6 +1,6 @@
 from typing import Optional
 
-from .base import SttResult
+from .interface import SttResult
 
 MOCK_TRANSCRIPT = "Hello"
 MOCK_CONFIDENCE = 0.99

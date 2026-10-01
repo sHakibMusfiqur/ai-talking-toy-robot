@@ -1,6 +1,6 @@
 from contract.enums import SafetyAction
 
-from .base import SafetyResult
+from .interface import SafetyResult
 
 _RESULT = SafetyResult(flagged=False, category=None, action_taken=SafetyAction.ALLOWED)
 

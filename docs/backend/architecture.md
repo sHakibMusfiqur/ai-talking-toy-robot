@@ -143,7 +143,7 @@ devices/authentication.py DeviceJWTAuthentication (Bearer, per-view)
 devices/permissions.py    + DeviceAuthenticated
 ```
 
-- `DeviceChallenge`: one row per issued nonce — `challenge_hash` (SHA-256
+- `DeviceChallenge`: one row per issued nonce ï¿½ `challenge_hash` (SHA-256
   only, raw never stored), `expires_at` (`DEVICE_CHALLENGE_TTL_SECONDS`,
   default 60 s), `consumed_at`. Issuing invalidates the robot's previous
   unconsumed challenge and prunes expired rows (bounded storage).
@@ -160,12 +160,12 @@ devices/permissions.py    + DeviceAuthenticated
 - JWT (`PyJWT`): HS256, secret `DEVICE_JWT_SECRET` (falls back to
   `SECRET_KEY` for dev; production sets an independent =32-char value),
   `iss`/`aud`/`exp`/`iat`/`sub` all required and validated on decode. Token
-  validation is stateless — revocation = delete the Robot (tested).
+  validation is stateless ï¿½ revocation = delete the Robot (tested).
 - `DeviceJWTAuthentication` is attached **per-view** (`authentication_classes`
   on device views only), never to `DEFAULT_AUTHENTICATION_CLASSES`, so a
   device Bearer cannot authenticate any human endpoint and a dashboard
   session cannot authenticate a device endpoint. It resolves `request.auth`
-  as `{"robot": <Robot>, "payload": <claims>}` — client-supplied
+  as `{"robot": <Robot>, "payload": <claims>}` ï¿½ client-supplied
   `robot_id`/`device_id` are never consulted (tested).
 - `authenticate_header()` returns `Bearer` (proper `WWW-Authenticate`);
   `core.exceptions.api_exception_handler` also forces 401 for
@@ -178,22 +178,22 @@ devices/permissions.py    + DeviceAuthenticated
 
 ## Phase 7 decisions (recorded)
 
-1. **No refresh endpoint** — devices re-run challenge/token within the TTL
-   window (§26's "proactive refresh" is firmware-side: exchange again).
-2. **Authentication ? pairing** — challenge/token require registration only;
+1. **No refresh endpoint** ï¿½ devices re-run challenge/token within the TTL
+   window (ï¿½26's "proactive refresh" is firmware-side: exchange again).
+2. **Authentication ? pairing** ï¿½ challenge/token require registration only;
    pairing remains the separate ownership act.
-3. **No human JWT in Phase 7** — dashboard keeps session+CSRF until the
+3. **No human JWT in Phase 7** ï¿½ dashboard keeps session+CSRF until the
    SPA/API decision point (Phase 17); two auth domains stay disjoint.
-4. **Trailing slash only** for Phase 7 paths — the Phase 6 dual-slash
+4. **Trailing slash only** for Phase 7 paths ï¿½ the Phase 6 dual-slash
    aliases were a one-off spec conflict, not a pattern to extend.
-5. **Challenge issued to unpaired robots** — a registered device can
+5. **Challenge issued to unpaired robots** ï¿½ a registered device can
    authenticate before being claimed; `me/` exposes no owner data.
 6. **Signature payload** is the raw challenge UTF-8 bytes (no DER wrapping,
-   no prefixes) — simplest for firmware.
+   no prefixes) ï¿½ simplest for firmware.
 
 ## Phase 7 out of scope (unchanged later-phase boundaries)
 
-No MQTT (Phase 8), no conversation/AI processing (Phase 9–12), no OTA
+No MQTT (Phase 8), no conversation/AI processing (Phase 9ï¿½12), no OTA
 execution, no dashboards, no firmware implementation, no rate limiting of
 auth endpoints (Phase 19).
 
@@ -360,3 +360,120 @@ language detection (`lang_detect/`, Phase 10); no Django integration -
 no `AIInteraction` persistence, no robot->Django->AI call path (Phase 11);
 no streaming/websockets/SSE; no MongoDB access from this service; no OTA,
 dashboard, or firmware work.
+
+# Phase 10 (current) - Provider-Agnostic Integration Architecture (addendum)
+
+**Phase 10 currently provides provider-agnostic integration architecture
+and deterministic implementations. Real provider selection and provider
+implementation are intentionally deferred** (project-owner decision).
+The frozen Section 15 Input/Output Contract, Section 25 internal auth,
+the semantic Emotion/Action enums, the API route, and all security
+boundaries are unchanged.
+
+## Structure (provider adapter rule)
+
+Provider-capable stages now follow the layout `interface.py` +
+`mock.py` + `providers/` (empty, for future adapters):
+
+- `stt/`, `llm/`, `tts/` - `interface.py` Protocols, deterministic
+  `mock.py`, `providers/` placeholder packages.
+- `safety/` - `interface.py` (`SafetyResult`, combined `SafetyStage`)
+  plus explicit halves: `pre.py` (pre-LLM gate), `post.py` (post-LLM,
+  pre-TTS gate). Order is fixed: input -> pre-safety -> LLM ->
+  post-safety -> TTS. Unsafe LLM output never reaches TTS.
+- `lang_detect/` (new, additive) - provider/library-agnostic
+  `LangDetectStage` resolving per-utterance language (AR-12): explicit
+  `language_hint` wins, otherwise deterministic script detection
+  (Bengali block -> `bn`, else `en`). No library, no external service.
+- `understanding/`, `emotion/`, `action/`, `context/` - unchanged
+  Phase 9 interfaces; context remains request-provided only (AR-5b).
+
+Provider-specific code must live behind adapters in `providers/` - never
+in `pipeline.py`, `api/main.py`, `contract/schemas.py`, or
+`contract/enums.py`. The pipeline depends only on injected Protocols
+(`PipelineStages`), so a future adapter swaps in without pipeline,
+contract, or API changes.
+
+## Neutral configuration & retry (`config.py`, `retry.py`, `errors.py`)
+
+- `config.py`: provider-neutral env keys per component
+  (`AI_{STT,LLM,TTS}_{PROVIDER,MODEL,ENDPOINT,TIMEOUT_SECONDS,RETRY_COUNT,RETRY_BACKOFF_SECONDS}`).
+  Defaults: provider `mock`, timeout 30s, retry count 1, backoff 0.5s.
+  Missing/empty env = safe defaults (pipeline runs with zero
+  configuration/credentials); malformed numerics raise `ValueError`
+  naming the key only (values never echoed).
+- `errors.py`: provider-neutral `ProviderError`.
+- `retry.py`: `RetryPolicy` + `run_with_retry` - retries
+  `ProviderError`/`TimeoutError` with exponential backoff, injectable
+  `sleep` (testable offline, no network I/O of its own).
+
+## Fallback extension points (contract-respecting, no new output fields)
+
+- STT provider failure -> retry once, then the Section 15.1
+  listening-retry fallback (`safety: null`).
+- LLM provider failure -> retry once, then a generic safe text with
+  `NEUTRAL`/`IDLE` and an unflagged safety object (Section 16).
+- TTS provider failure -> degraded text-only response (`audio: null`).
+- Safety stage failure -> fail closed: approved redirect text,
+  `flagged: true`, `action_taken: BLOCKED`, LLM never executed.
+- All other behavior (low-confidence STT fallback, pre/post safety
+  flag fallbacks, controlled 500s) is exactly Phase 9.
+
+## Tests
+
+Phase 10 architecture suite (`tests/test_provider_architecture.py`,
+`tests/test_provider_failures.py`): full-pipeline injection of
+non-mock implementations, lang_detect behavior, neutral config
+loading, no-SDK/no-credential checks, retry mechanics, all four
+failure fallbacks, and TTS-spy proof that unsafe LLM output never
+reaches TTS - all offline (`block_network`).
+
+## Phase 10 step 3 - deterministic two-stage safety package (addendum)
+
+Owner-approved interim scope while real providers remain deferred
+(no provider, no SDK, no credential, no network - fully offline).
+
+- `safety/rules.py` - `RuleBasedSafety`, the deterministic default
+  `SafetyStage`, now wired into `default_stages()` (replacing
+  `MockSafety` as the default; `mock.py` remains for pinned tests).
+  - Pre-LLM check (Section 14.2.1) runs on transcript + understood
+    intent; a flag stops the pipeline before the LLM and answers with
+    the approved redirect (`action_taken: REDIRECTED`).
+  - Post-LLM check (Section 14.2.2) is the last gate before TTS; a
+    flag replaces the draft (`action_taken: BLOCKED`) - flagged output
+    is never returned or spoken (Section 18).
+  - Category mapping uses the frozen Phase 0 taxonomy only:
+    `PERSONAL_INFO_REQUEST` (Section 17.1 hard rule - address, school
+    name, exact location, contact details: always blocked/redirected,
+    any phrasing, both languages) and `UNSAFE_TOPIC` (age-inappropriate
+    requests, adult content, violence, dangerous instructions,
+    self-harm-adjacent content, external links, unsafe challenges,
+    manipulation/grooming patterns). A finer-grained taxonomy would be
+    a frozen-contract extension and needs an owner decision record.
+  - Coverage is bilingual (English patterns + Bangla Unicode
+    patterns); URL/link detection enforces the Section 17.1 "no links
+    in robot responses" contract rule at both stages.
+  - Precedence: PII hard rule > unsafe topic > external link.
+    Intents `personal_info_request` / `unsafe_request` are honored
+    pre-generation (the understanding-adapter signal; text patterns are
+    the primary signal today).
+- Canonical fixture set: `docs/testing/child-safety-fixtures.json`
+  (versioned: fixture `version` + `taxonomy_version`) with required
+  risk-area minimums per Section 31 levels 6/14; pass/fail history in
+  `docs/testing/SAFETY-FIXTURE-RESULTS.md`.
+- Tests (`tests/test_safety_fixtures.py`): 100%-categorization gate
+  over every fixture, coverage-shrink guard, bilingual/both-stage
+  assertions, full-pipeline proof that pre-flagged input never reaches
+  the LLM and that flagged post-stage drafts never reach TTS (only the
+  approved fallback is ever spoken), PII-precedence, and intent-signal
+  tests. The rule engine passes the existing no-provider/no-network
+  static scans unchanged.
+
+## Phase 10 out of scope (unchanged later-phase boundaries)
+
+No real STT/LLM/TTS provider, provider SDK, provider account, or
+credential (the deterministic safety filter is rule-based, not a
+provider); no `lang_detect` library; no Django integration (Phase 11);
+no ESP32/firmware work; no public port; no contract change. Real
+provider selection remains an owner/AI-Developer decision. Expanding
+the safety taxonomy beyond the frozen two values is an owner decision.

@@ -114,3 +114,16 @@ docker compose --env-file .env -f infra/docker-compose.yml up -d --build
 - Deps: `ai_service/requirements.txt` (fastapi/uvicorn pins) + `ai_service/requirements-dev.txt` (httpx/pytest). No AI provider SDKs or keys are installed — Phase 9 is deterministic mocks only.
 - `AI_SERVICE_INTERNAL_TOKEN` must be set in `.env` (Compose fails fast without it; `.env.example` holds a placeholder). Compose service `ai-service` is internal-only — never add a `ports:` mapping to it.
 - Phase 9 acceptance: ai_service `pytest` (58) + backend `pytest` (223) green + `manage.py check` clean + `git diff --check` clean + HEAD still `b2e80ce` (never commit/stage/push; user's client commits).
+
+### Phase 10 additions (2026-10-01, step 2 - architecture only)
+
+- Provider-agnostic architecture landed: `interface.py`+`mock.py`+`providers/` (empty) for `stt|llm|tts`, `safety/{interface,pre,post,mock}.py`, additive `lang_detect/`, plus neutral `config.py`/`retry.py`/`errors.py` (env keys `AI_{STT,LLM,TTS}_*`, defaults `mock`/30s/retry 1/backoff 0.5). **Real providers intentionally deferred (owner decision) - no SDK, no keys, no provider names.**
+- ai_service suite: **88 tests** (58 Phase 9 baseline unchanged + 30 architecture/failure tests), all offline. Backend stays **223**.
+- Do not add a `providers/` adapter, provider package, or `AI_*` credential without a new approved provider decision record; never add `ports:` to `ai-service`.
+
+### Phase 10 additions (2026-10-01, step 3 - safety package)
+
+- Owner-approved interim scope (providers still deferred): `safety/rules.py` `RuleBasedSafety` is now the default `SafetyStage` in `default_stages()` — deterministic, offline, bilingual (en+bn), frozen 2-value taxonomy only (`PERSONAL_INFO_REQUEST` hard rule first, then `UNSAFE_TOPIC`); pre → `REDIRECTED`, post → `BLOCKED`. Extending the taxonomy = contract change = new owner decision record.
+- Canonical fixture set: `docs/testing/child-safety-fixtures.json` (62 cases, required risk-area minimums, versioned) + pass/fail history in `docs/testing/SAFETY-FIXTURE-RESULTS.md`. Gate: **100% categorization** (Section 31 levels 6/14) — enforced by `ai_service/tests/test_safety_fixtures.py`, which also proves pre-flagged input never reaches the LLM and flagged drafts never reach TTS.
+- ai_service suite: **206 tests** (88 step-2 baseline unchanged + 118 safety-package tests), all offline. Backend stays **223**.
+- Acceptance for this step: ai_service `pytest` (206) + backend `pytest` (223) green + `manage.py check` clean + `git diff --check` clean + nothing staged (never commit/stage/push; user's client commits).
