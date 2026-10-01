@@ -114,7 +114,7 @@ def _finalize(
             lambda: stages.tts.run(text, language.value, emotion),
             stages.tts_retry,
         )
-    except ProviderError:
+    except (ProviderError, TimeoutError):
         audio_ref = None
     return assemble(
         payload,
@@ -137,7 +137,7 @@ def run_pipeline(payload: AIInputContract, stages: PipelineStages | None = None)
         hint = payload.language_hint.value if payload.language_hint else None
         try:
             stt_result = run_with_retry(lambda: st.stt.run(audio_bytes, hint), st.stt_retry)
-        except ProviderError:
+        except (ProviderError, TimeoutError):
             # STT failure -> controlled retry/fallback (Section 15.1 path).
             return _finalize(
                 payload,
@@ -179,7 +179,7 @@ def run_pipeline(payload: AIInputContract, stages: PipelineStages | None = None)
     # --- safety stage 1: pre-LLM (Section 14.2) ---------------------------
     try:
         pre = st.safety.pre_check(transcript, intent.intent)
-    except ProviderError:
+    except (ProviderError, TimeoutError):
         # Safety failure -> fail closed, LLM never runs.
         pre = None
     if pre is None:
@@ -209,7 +209,7 @@ def run_pipeline(payload: AIInputContract, stages: PipelineStages | None = None)
             lambda: st.llm.run(transcript, intent.intent, bundle, payload.mode.value),
             st.llm_retry,
         )
-    except ProviderError:
+    except (ProviderError, TimeoutError):
         # LLM failure -> generic safe fallback (Section 16), contract-shaped.
         return _finalize(
             payload,
@@ -224,7 +224,7 @@ def run_pipeline(payload: AIInputContract, stages: PipelineStages | None = None)
     # --- safety stage 2: post-LLM last gate (Section 14.2) ----------------
     try:
         post = st.safety.post_check(draft.text)
-    except ProviderError:
+    except (ProviderError, TimeoutError):
         return _finalize(
             payload,
             text=SAFETY_FALLBACK_TEXT,
