@@ -87,6 +87,7 @@ def test_unknown_notify_kind_rejected(recording_publisher):
 def publisher(broker):
     from mqtt_bridge.publisher import get_publisher
 
+    reset_publisher()
     pub = get_publisher()
     yield pub
     reset_publisher()
