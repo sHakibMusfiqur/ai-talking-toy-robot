@@ -42,6 +42,17 @@ cd ai_service
 ..\.venv\Scripts\python.exe -m pytest -q
 ```
 
+### CI (GitHub Actions) — required repository secret
+
+The `ai-service-tests` job in `.github/workflows/ci.yml` passes
+`AI_SERVICE_INTERNAL_TOKEN: ${{ secrets.AI_SERVICE_INTERNAL_TOKEN }}` and
+fails fast with `AI_SERVICE_INTERNAL_TOKEN secret is not configured`
+when the secret is absent. The repository owner must create it (value =
+the same internal token used in local `.env`; never commit it):
+
+Repository Settings → Secrets and variables → Actions → Repository
+secrets → `AI_SERVICE_INTERNAL_TOKEN`
+
 ## Service (container)
 
 ```
