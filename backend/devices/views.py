@@ -1,4 +1,8 @@
 from bson import ObjectId
+from django.contrib.auth.decorators import login_required
+from django.http import Http404
+from django.shortcuts import render
+from django.utils import timezone
 from rest_framework import status
 from rest_framework.exceptions import NotFound, ValidationError
 from rest_framework.permissions import AllowAny
@@ -46,15 +50,18 @@ def _get_parent(request):
 
 
 def _get_owned_robot(request, pk):
-    """Owner-scoped robot resolution for read APIs: malformed, unknown and
-    non-owned ids are indistinguishable (404), the same rule as the robot
-    detail endpoint — resource existence is never leaked across parents."""
+    """Owner-scoped robot resolution for read APIs and panel pages: malformed,
+    unknown and non-owned ids are indistinguishable (404), the same rule as
+    the robot detail endpoint — resource existence is never leaked across
+    parents. Raises Http404 so one helper serves both plain Django views
+    (Django's 404 handler) and DRF views (DRF converts Http404 to the same
+    404 `{"detail": "Not found."}` response)."""
     if not isinstance(pk, str) or not ObjectId.is_valid(pk):
-        raise NotFound()
+        raise Http404()
     parent = _get_parent(request)
     robot = Robot.objects.filter(pk=ObjectId(pk), parent=parent).first()
     if robot is None:
-        raise NotFound()
+        raise Http404()
     return robot
 
 
@@ -402,3 +409,92 @@ class RobotControllerSummaryView(APIView):
                 "configuration": _configuration_payload(robot),
             }
         )
+
+
+def _robot_card(robot, state):
+    """Dashboard card payload: only persisted Robot/RobotState fields — a
+    missing RobotState row means the robot never reported, so `online` is
+    False (the model's own default semantics) and telemetry fields show
+    N/A, never fabricated values."""
+    online = bool(state.online) if state is not None else False
+    battery = state.battery_percent if state is not None else None
+    rssi = state.rssi if state is not None else None
+    return {
+        "id": str(robot.pk),
+        "display_name": robot.nickname or robot.device_id,
+        "device_id": robot.device_id,
+        "online": online,
+        "last_seen": robot.last_seen,
+        "battery_display": f"{battery}%" if battery is not None else "N/A",
+        "rssi_display": str(rssi) if rssi is not None else "N/A",
+        "last_seen_display": (
+            timezone.localtime(robot.last_seen).strftime("%b %d, %Y %H:%M")
+            if robot.last_seen
+            else "N/A"
+        ),
+        "firmware_display": robot.firmware_version or "N/A",
+    }
+
+
+@login_required
+def dashboard(request):
+    """Main Web Control Panel — overview page (server-rendered initial
+    robot list; live data is fetched from the existing REST APIs).
+
+    Ownership: parent-scoped for every role. Non-admin callers see exactly
+    the robots linked to their own Parent row (same rule as
+    RobotDetailView). Admins are deliberately NOT elevated here — the
+    dashboard never widens a parent-scoped queryset, so an admin sees only
+    robots they personally own; fleet visibility remains the admin-only
+    `GET /api/v1/devices/` API. Online counts derive from RobotState.online
+    (device status/LWT semantics); robots with no RobotState row have never
+    reported and count as offline."""
+    parent = _get_parent(request)
+    robots = list(Robot.objects.filter(parent=parent).order_by("-created_at"))
+    states = {
+        state.robot_id: state
+        for state in RobotState.objects.filter(
+            robot__in=[robot.pk for robot in robots]
+        )
+    }
+    cards = [_robot_card(robot, states.get(robot.pk)) for robot in robots]
+    online_count = sum(1 for card in cards if card["online"])
+    with_activity = [card for card in cards if card["last_seen"] is not None]
+    recently_active = max(with_activity, key=lambda c: c["last_seen"], default=None)
+    return render(
+        request,
+        "dashboard/index.html",
+        {
+            "user_email": request.user.email,
+            "robot_cards": cards,
+            "total_count": len(cards),
+            "online_count": online_count,
+            "offline_count": len(cards) - online_count,
+            "recently_active": recently_active,
+        },
+    )
+
+
+@login_required
+def robot_controller(request, pk):
+    """Controller page for one robot — ownership is resolved server-side
+    with the same helper as the read APIs (404 for non-owned, unknown, or
+    malformed ids). The rendered id is only a convenience for JavaScript
+    requests; backend authorization stays authoritative on every API call."""
+    robot = _get_owned_robot(request, pk)
+    return render(
+        request,
+        "dashboard/controller.html",
+        {
+            "user_email": request.user.email,
+            "robot_id": str(robot.pk),
+            "display_name": robot.nickname or robot.device_id,
+            "device_id": robot.device_id,
+            "firmware_display": robot.firmware_version or "N/A",
+            "last_seen_display": (
+                timezone.localtime(robot.last_seen).strftime("%b %d, %Y %H:%M")
+                if robot.last_seen
+                else "N/A"
+            ),
+        },
+    )

@@ -1,0 +1,90 @@
+{% extends "base.html" %}
+{% load static %}
+{% block title %}Overview{% endblock %}
+{% block body %}
+<div class="app-shell">
+  {% include "dashboard/partials/sidebar.html" with active_nav="overview" %}
+  <div class="app-main">
+    <header class="topbar">
+      <button type="button" class="nav-toggle" data-nav-toggle aria-expanded="false" aria-controls="sidebar">
+        <span class="nav-toggle-bar" aria-hidden="true"></span>
+        <span class="nav-toggle-bar" aria-hidden="true"></span>
+        <span class="nav-toggle-bar" aria-hidden="true"></span>
+        <span class="visually-hidden">Menu</span>
+      </button>
+      <h1 class="topbar-title">Overview</h1>
+    </header>
+    <main class="content">
+      <section class="stats-grid" aria-label="Robot statistics">
+        <div class="stat-card glass" data-stat="total" data-value="{{ total_count }}">
+          <span class="stat-value">{{ total_count }}</span>
+          <span class="stat-label">Total robots</span>
+        </div>
+        <div class="stat-card glass" data-stat="online" data-value="{{ online_count }}">
+          <span class="stat-value">{{ online_count }}</span>
+          <span class="stat-label">Online</span>
+        </div>
+        <div class="stat-card glass" data-stat="offline" data-value="{{ offline_count }}">
+          <span class="stat-value">{{ offline_count }}</span>
+          <span class="stat-label">Offline</span>
+        </div>
+        <div class="stat-card glass" data-stat="recently-active"
+             data-value="{{ recently_active.id|default_if_none:'' }}">
+          <span class="stat-value stat-value-name">{{ recently_active.display_name|default:"N/A" }}</span>
+          <span class="stat-label">Recently active</span>
+        </div>
+      </section>
+
+      <section id="robots" class="section" aria-labelledby="robots-heading">
+        <div class="section-head">
+          <h2 id="robots-heading">Your robots</h2>
+        </div>
+        {% if robot_cards %}
+        <ul class="robot-grid">
+          {% for card in robot_cards %}
+          <li class="robot-card glass">
+            <div class="robot-card-head">
+              <span class="status-dot{% if card.online %} is-online{% endif %}" aria-hidden="true"></span>
+              <span class="status-text">{% if card.online %}Online{% else %}Offline{% endif %}</span>
+            </div>
+            <h3 class="robot-card-title">{{ card.display_name }}</h3>
+            <dl class="robot-meta">
+              <div class="meta-row">
+                <dt>Device ID</dt>
+                <dd class="mono">{{ card.device_id }}</dd>
+              </div>
+              <div class="meta-row">
+                <dt>Battery</dt>
+                <dd>{{ card.battery_display }}</dd>
+              </div>
+              <div class="meta-row">
+                <dt>Signal</dt>
+                <dd>{{ card.rssi_display }}</dd>
+              </div>
+              <div class="meta-row">
+                <dt>Last seen</dt>
+                <dd>{{ card.last_seen_display }}</dd>
+              </div>
+              <div class="meta-row">
+                <dt>Firmware</dt>
+                <dd>{{ card.firmware_display }}</dd>
+              </div>
+            </dl>
+            <a class="btn btn-primary" href="{% url 'dashboard-controller' card.id %}">Open controller</a>
+          </li>
+          {% endfor %}
+        </ul>
+        {% else %}
+        <div class="empty-state glass">
+          <p class="empty-title">No robots paired yet</p>
+          <p class="empty-text">Pair a robot to see it here and start controlling it.</p>
+        </div>
+        {% endif %}
+      </section>
+    </main>
+  </div>
+</div>
+{% endblock %}
+{% block scripts %}
+<script src="{% static 'js/dashboard.js' %}"></script>
+{% endblock %}

@@ -547,3 +547,66 @@ safety-history endpoints (Phase 11+); no fleet-wide admin telemetry read
 (owner decision if/when the admin dashboard needs it); no changes to the
 frozen MQTT topic/payload contract, firmware, or AI-service contracts.
 Phase 11 AI model/provider integration remains explicitly on hold.
+
+
+# Controller UI (Main Web Control Panel, addendum)
+
+Server-rendered control panel (docs/02 Phase 17 panel surface, owner-approved
+Option B). Browser talks **only to Django**: Django Templates serve the pages
+and the same-origin session + existing REST endpoints supply all live data -
+no BFF layer, no new REST endpoints, no frontend build pipeline.
+
+## Structure & routes
+
+- `templates/base.html` (CSRF meta, static links) +
+  `templates/dashboard/{index,controller}.html` +
+  `templates/dashboard/partials/sidebar.html`; styling/behaviour in
+  `static/css/{tokens,dashboard}.css` and `static/js/{api,dashboard,
+  controller}.js` (classic scripts, `STATICFILES_DIRS` discovery; static
+  *serving* follows the normal Django DEBUG/dev-server rule - production
+  serving is a deployment-phase concern).
+- `GET /dashboard/` (login-required): server-rendered, **parent-scoped**
+  robot list + counts (total/online/offline/recently-active). Online =
+  `RobotState.online` when a state row exists, otherwise offline (never
+  reported). Derived only from existing Robot/RobotState data.
+- `GET /dashboard/robots/<id>/` (login-required): controller page for one
+  robot, resolved by the same `_get_owned_robot()` helper as the read APIs
+  (the helper now raises `Http404`, which DRF converts to the identical
+  `404 {"detail": "Not found."}` on API views); non-owned/unknown/malformed
+  id -> indistinguishable 404, no debug/traceback output.
+- The HTML robot id is a convenience for JavaScript only - every API call
+  is re-authorized server-side (hidden ids are never authorization).
+- `login.html` `next` now defaults to `/dashboard/` (root route unchanged).
+
+## Ownership & role policy
+
+- Dashboard query is `Robot.objects.filter(parent=_get_parent(request))`
+  for **every** role: admins are deliberately not elevated (no fleet view
+  in the UI); fleet identity stays on admin-only `GET /api/v1/devices/`.
+- Existing API boundaries unchanged: parent device list still 403, per-robot
+  reads still owner-scoped 404, identical 401 bodies.
+
+## Client behaviour (`static/js`)
+
+- `api.js` (`window.RobotAPI`): same-origin `fetch` with session cookie +
+  `X-CSRFToken` from the `<meta name="csrf-token">` header (never
+  localStorage); consumes only the existing endpoints (`summary`, `state`,
+  `events`, `sensors`, `configuration`, `command`); friendly status-based
+  messages (401/403/404/429/5xx/network) - never raw server internals or
+  stack traces; 401 redirects to `/login/?next=...`.
+- `controller.js`: one `summary` load for state/events/config + separate
+  `sensors` fetch; state polling every 15s (paused while the tab is hidden,
+  single-flight, resumes on `visibilitychange`); each section renders
+  loading/success/empty/error with retry; all dynamic text via `textContent`
+  (never `innerHTML`); the seven semantic buttons (`IDLE, WAVE, DANCE, NOD,
+  TILT_HEAD, POINT, LISTENING_RETRY`) disable while sending (double-click
+  safe) and show success/error status - no servo/PWM/GPIO/motor vocabulary
+  anywhere in the UI.
+- Configuration section is display-only (no forms, no write path).
+
+## Controller UI out of scope (unchanged later-phase boundaries)
+
+No new REST endpoints, no `/auth/me`, no changes to API authorization
+rules; no AI/STT/LLM/TTS surface, no conversations/dashboards analytics,
+no OTA/firmware, no config writes, no frontend framework/build tooling;
+Phase 11 AI model/provider integration remains explicitly on hold.

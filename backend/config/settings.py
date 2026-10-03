@@ -128,6 +128,9 @@ USE_I18N = True
 USE_TZ = True
 
 STATIC_URL = "static/"
+# Project-level static assets for the web control panel (tokens + CSS/JS);
+# discovery only — serving follows the normal Django DEBUG/dev-server rule.
+STATICFILES_DIRS = [BASE_DIR / "static"]
 
 DEFAULT_AUTO_FIELD = "django_mongodb_backend.fields.ObjectIdAutoField"
 

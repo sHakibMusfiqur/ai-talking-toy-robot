@@ -1,0 +1,130 @@
+{% extends "base.html" %}
+{% load static %}
+{% block title %}{{ display_name }} · Controller{% endblock %}
+{% block body %}
+<div class="app-shell">
+  {% include "dashboard/partials/sidebar.html" with active_nav="robots" %}
+  <div class="app-main">
+    <header class="topbar">
+      <button type="button" class="nav-toggle" data-nav-toggle aria-expanded="false" aria-controls="sidebar">
+        <span class="nav-toggle-bar" aria-hidden="true"></span>
+        <span class="nav-toggle-bar" aria-hidden="true"></span>
+        <span class="nav-toggle-bar" aria-hidden="true"></span>
+        <span class="visually-hidden">Menu</span>
+      </button>
+      <div class="topbar-identity">
+        <h1 class="topbar-title">{{ display_name }}</h1>
+        <p class="topbar-sub mono">{{ device_id }} · v{{ firmware_display }} · last seen {{ last_seen_display }}</p>
+      </div>
+    </header>
+    <main class="content" data-robot-id="{{ robot_id }}">
+      <p class="breadcrumb"><a href="{% url 'dashboard' %}">← All robots</a></p>
+
+      <section class="section" aria-labelledby="status-heading">
+        <div class="section-head">
+          <h2 id="status-heading">Status</h2>
+        </div>
+        <div class="panel glass" id="state-block" data-state="loading">
+          <div class="state-view" id="state-loading" role="status">
+            <span class="spinner" aria-hidden="true"></span> Loading status…
+          </div>
+          <div class="state-view" id="state-values" hidden>
+            <div class="status-hero">
+              <span class="status-dot" id="state-dot" aria-hidden="true"></span>
+              <span class="status-label" id="state-connection">—</span>
+            </div>
+            <dl class="state-grid">
+              <div class="meta-row"><dt>Current state</dt><dd id="state-current">—</dd></div>
+              <div class="meta-row"><dt>Battery</dt><dd id="state-battery">—</dd></div>
+              <div class="meta-row"><dt>Signal</dt><dd id="state-rssi">—</dd></div>
+              <div class="meta-row"><dt>Last seen</dt><dd id="state-last-seen">—</dd></div>
+            </dl>
+          </div>
+          <div class="state-view state-error" id="state-error" hidden>
+            <p class="error-text" id="state-error-text">Could not load status.</p>
+            <button type="button" class="btn btn-ghost" id="state-retry">Retry</button>
+          </div>
+        </div>
+        <p class="offline-hint" id="offline-hint" hidden>Robot is offline — commands may not be delivered.</p>
+      </section>
+
+      <section class="section" aria-labelledby="controller-heading">
+        <div class="section-head">
+          <h2 id="controller-heading">Controller</h2>
+          <p class="section-note">Simple actions only — the robot decides the exact movement.</p>
+        </div>
+        <div class="command-grid" role="group" aria-label="Robot commands">
+          <button type="button" class="btn btn-command" data-action="IDLE">Idle</button>
+          <button type="button" class="btn btn-command" data-action="WAVE">Wave</button>
+          <button type="button" class="btn btn-command" data-action="DANCE">Dance</button>
+          <button type="button" class="btn btn-command" data-action="NOD">Nod</button>
+          <button type="button" class="btn btn-command" data-action="TILT_HEAD">Tilt head</button>
+          <button type="button" class="btn btn-command" data-action="POINT">Point</button>
+          <button type="button" class="btn btn-command" data-action="LISTENING_RETRY">Listening retry</button>
+        </div>
+        <p class="command-status" id="command-status" role="status" aria-live="polite"></p>
+      </section>
+
+      <section class="section" aria-labelledby="events-heading">
+        <div class="section-head">
+          <h2 id="events-heading">Recent events</h2>
+        </div>
+        <div class="panel glass" id="events-block" data-state="loading">
+          <div class="state-view" id="events-loading" role="status">
+            <span class="spinner" aria-hidden="true"></span> Loading events…
+          </div>
+          <ul class="event-list" id="events-list" hidden></ul>
+          <div class="state-view" id="events-empty" hidden>
+            <p class="empty-text">No events reported yet.</p>
+          </div>
+          <div class="state-view state-error" id="events-error" hidden>
+            <p class="error-text" id="events-error-text">Could not load events.</p>
+            <button type="button" class="btn btn-ghost" id="events-retry">Retry</button>
+          </div>
+        </div>
+      </section>
+
+      <section class="section" aria-labelledby="sensors-heading">
+        <div class="section-head">
+          <h2 id="sensors-heading">Sensors</h2>
+        </div>
+        <div class="panel glass" id="sensors-block" data-state="loading">
+          <div class="state-view" id="sensors-loading" role="status">
+            <span class="spinner" aria-hidden="true"></span> Loading sensor readings…
+          </div>
+          <div class="sensor-grid" id="sensors-list" hidden></div>
+          <div class="state-view" id="sensors-empty" hidden>
+            <p class="empty-text">No sensor readings reported yet.</p>
+          </div>
+          <div class="state-view state-error" id="sensors-error" hidden>
+            <p class="error-text" id="sensors-error-text">Could not load sensor readings.</p>
+            <button type="button" class="btn btn-ghost" id="sensors-retry">Retry</button>
+          </div>
+        </div>
+      </section>
+
+      <section class="section" aria-labelledby="config-heading">
+        <div class="section-head">
+          <h2 id="config-heading">Configuration</h2>
+          <span class="badge">Read-only</span>
+        </div>
+        <div class="panel glass" id="config-block" data-state="loading">
+          <div class="state-view" id="config-loading" role="status">
+            <span class="spinner" aria-hidden="true"></span> Loading configuration…
+          </div>
+          <dl class="state-grid" id="config-values" hidden></dl>
+          <div class="state-view state-error" id="config-error" hidden>
+            <p class="error-text" id="config-error-text">Could not load configuration.</p>
+            <button type="button" class="btn btn-ghost" id="config-retry">Retry</button>
+          </div>
+        </div>
+      </section>
+    </main>
+  </div>
+</div>
+{% endblock %}
+{% block scripts %}
+<script src="{% static 'js/dashboard.js' %}"></script>
+<script src="{% static 'js/api.js' %}"></script>
+<script src="{% static 'js/controller.js' %}"></script>
+{% endblock %}
