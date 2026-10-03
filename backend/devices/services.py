@@ -307,6 +307,21 @@ def record_robot_event(*, robot, event_type, payload=None):
     return event
 
 
+COMMAND_AUDIT_ACTION = "robot.commanded"
+
+
+def audit_robot_command(*, actor, robot, ip=None):
+    """Dashboard-origin control action (Section 26/28): append-only audit
+    entry recording which authenticated actor commanded which robot. Never
+    records command payload material."""
+    return record_audit(
+        actor=actor,
+        action=COMMAND_AUDIT_ACTION,
+        target=str(robot.pk),
+        ip=ip,
+    )
+
+
 def _audit_auth_failure(action, robot, ip):
     record_audit(actor=None, action=action, target=str(robot.pk), ip=ip)
 

@@ -477,3 +477,73 @@ provider); no `lang_detect` library; no Django integration (Phase 11);
 no ESP32/firmware work; no public port; no contract change. Real
 provider selection remains an owner/AI-Developer decision. Expanding
 the safety taxonomy beyond the frozen two values is an owner decision.
+
+# Controller API (control panel backend foundation, addendum)
+
+Backend-only foundation for the Main Web Control Panel (docs/02 Phase 17):
+semantic command handling on the existing endpoint plus owner-scoped read
+APIs. No UI, no new models, no migrations.
+
+## Command semantics (Section 19 pass-through)
+
+1. **One central definition**: `core/semantic_actions.py` holds
+   `SEMANTIC_ACTIONS` = the frozen AI `Action` enum (`IDLE, WAVE, NOD,
+   TILT_HEAD, POINT, LISTENING_RETRY`, docs/01 Section 19 /
+   `ai_service/contract/enums.py`) **+ `DANCE`** - the controller-origin
+   addition required by the existing Phase 8 command tests and the Phase
+   17 quick actions. Extending this set is a frozen-contract change and
+   needs an owner decision record.
+2. **Where it is enforced**: `RobotCommandView` validates envelope shape
+   (`DeviceCommandSerializer`, mechanical - unchanged) and *then*
+   semantic membership, before publishing. The shared serializer/publisher
+   path stays mechanical (Phase 8 decision 5; recording tests publish
+   arbitrary names), so mqtt_bridge remains transport-only.
+3. **Case-insensitive, verbatim pass-through**: `wave`/`WAVE`/`Wave` all
+   match; the value is forwarded exactly as received (Section 19: the
+   backend validates/neutralizes, never translates or normalizes).
+   Firmware must therefore compare action names case-insensitively.
+   Unknown actions are `400`; a body carrying raw hardware fields
+   (`servo_angle`, `pwm`, `gpio`, ...) is `400` at the envelope stage.
+4. **Ordering**: ownership resolves first (404), envelope second (400),
+   semantic third (400), publish fourth (503) - a foreign caller can
+   never probe robot existence or action validity.
+5. **Admin audit**: a successful admin command appends
+   `AuditLog(action="robot.commanded", target=<robot id>)` via
+   `devices.services.audit_robot_command`; parent commands are not
+   audited (Section 28 append-only convention).
+
+## Read APIs (owner-scoped, existing-data only)
+
+- Endpoints: `GET /api/v1/devices/{id}/{state,events,sensors,
+  configuration,summary}/` - all session-only (`401` for anonymous and
+  device Bearer tokens), `GET`-only (`405` otherwise), and resolved
+  through one `_get_owned_robot()` helper that reproduces the existing
+  `RobotDetailView` policy: **owner-scoped for everyone, admins
+  included** (per-robot reads never bypass pairing; fleet identity
+  remains the admin list endpoint's job). Non-owned/unknown/malformed →
+  indistinguishable `404`.
+- **Stable shapes, honest nulls**: `state` always returns the same seven
+  keys; a robot that never reported has `null` telemetry (null = not
+  reported, never fabricated). `events`/`sensors` are bounded lists
+  (`?limit=` integer 1..100, default 20, else `400`; newest first;
+  `[]` when empty).
+- **Configuration is read-only**: only the `is_current` version is
+  exposed; `data` passes a recursive secret-key redaction guard
+  (`password`, `token`, `secret`, `credential`, `api_key`, ...) so no
+  writer can leak credentials through this API. Absent configuration →
+  `{"version": null, "data": null, "is_current": null}`.
+- **`summary`** composes `robot` (existing `RobotSerializer`) + `state` +
+  newest 10 `events` + `configuration` from the same helpers - no new
+  fields, queries of new stores, or ownership rules.
+- Field sets come only from existing models (Section 23 panel fields:
+  online, last seen, state, battery, firmware, Wi-Fi signal); charging
+  state/uptime/history windows are not modelled yet and are not invented.
+
+## Controller API out of scope (unchanged later-phase boundaries)
+
+No visual UI/templates/JS (Phase 17 owns the panel); no bulk/group
+command endpoint; no configuration write path; no conversation/memory/
+safety-history endpoints (Phase 11+); no fleet-wide admin telemetry read
+(owner decision if/when the admin dashboard needs it); no changes to the
+frozen MQTT topic/payload contract, firmware, or AI-service contracts.
+Phase 11 AI model/provider integration remains explicitly on hold.

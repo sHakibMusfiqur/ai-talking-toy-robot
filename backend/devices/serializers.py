@@ -2,7 +2,7 @@ from bson import ObjectId
 from rest_framework import serializers
 
 from .exceptions import InvalidDeviceId, InvalidPublicKey
-from .models import Robot
+from .models import Robot, RobotEvent, SensorData
 from .services import _normalize_device_id, _validate_public_key
 
 
@@ -98,3 +98,39 @@ class RobotSerializer(serializers.ModelSerializer):
             "last_seen",
             "paired_at",
         ]
+
+
+class ControllerStateSerializer(serializers.Serializer):
+    """Read-side state payload for the control panel: exactly the fields
+    RobotState/Robot already store (docs/01 Section 23 live info view).
+    Output-only — a robot that has never reported state serializes as nulls
+    (null = not reported, never a fabricated value)."""
+
+    online = serializers.BooleanField(allow_null=True)
+    state = serializers.CharField(allow_null=True)
+    battery_percent = serializers.IntegerField(allow_null=True)
+    rssi = serializers.IntegerField(allow_null=True)
+    last_updated = serializers.DateTimeField(allow_null=True)
+    last_seen = serializers.DateTimeField(allow_null=True)
+    firmware_version = serializers.CharField()
+
+
+class RobotEventReadSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = RobotEvent
+        fields = ["event_type", "payload", "timestamp"]
+
+
+class SensorDataReadSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = SensorData
+        fields = ["sensor_type", "value", "timestamp"]
+
+
+class ConfigurationReadSerializer(serializers.Serializer):
+    """Read-only view of the current Configuration version (output-only);
+    `data` is passed through the secret-key redaction guard first."""
+
+    version = serializers.IntegerField(allow_null=True)
+    data = serializers.JSONField(allow_null=True)
+    is_current = serializers.BooleanField(allow_null=True)

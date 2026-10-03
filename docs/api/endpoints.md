@@ -264,18 +264,31 @@ Request body:
 ```
 
 - `action`: 1-64 chars, `[A-Za-z0-9_.-]` only; no other fields allowed
-  (Phase 8 is mechanical delivery only - Phase 13 defines semantics).
+  (the envelope itself stays mechanical, Phase 8 decision 5). On top of the
+  envelope, the value must be a member of the frozen **semantic action
+  contract** - case-insensitive match against `IDLE, WAVE, DANCE, NOD,
+  TILT_HEAD, POINT, LISTENING_RETRY` (one central backend definition in
+  `backend/core/semantic_actions.py`, docs/01 Section 19). The matched
+  value is forwarded **verbatim** (never normalized), and raw servo/PWM/
+  GPIO-style control can never pass this gate.
 - `200` - `{"detail": "Command published."}` (broker accepted the publish;
   device-side execution ack arrives later as an `event`, never here)
-- `400` - missing/blank/invalid `action`, non-string action, extra fields
+- `400` - missing/blank/invalid `action`, non-string action, extra fields,
+  or an unknown semantic action
+  (`{"action": ["Unknown semantic action. Allowed: ..."]}`)
 - `401` - unauthenticated, **or** a device Bearer token (this endpoint is
   session-only: device tokens cannot drive the command channel)
 - `404` - malformed id, unknown robot, or robot not owned by the caller
   (admins may command any robot; parents only their own - identical 404
-  for unknown vs not-owned)
+  for unknown vs not-owned; ownership resolves before body validation, so
+  a foreign caller can never probe action validity)
 - `405` - any method other than POST
 - `503` - `{"detail": "Robot command service unavailable."}` (MQTT transport
   failure; nothing was delivered)
+
+Successful **admin** commands append an `AuditLog` row
+(`action="robot.commanded"`, `target=<robot id>`, actor + ip); parent
+commands are not audited.
 
 ## MQTT topic contract (frozen, Section 11.1)
 
@@ -386,3 +399,69 @@ Errors:
 - `422` - contract violation (unknown field, wrong type, text/audio XOR).
 - `500` - controlled failure only: `{"detail": "Internal server error."}`;
   no stack traces, paths, or secrets are ever returned.
+
+# Controller API Reference (control panel backend foundation)
+
+Read APIs backing the Main Web Control Panel (docs/02 Phase 17); same base
+path, auth, ID, and error conventions as earlier phases. All five are
+`GET`-only (`POST`/`PUT`/`PATCH`/`DELETE` → `405`), session-authenticated
+(`401` for anonymous **and** for device Bearer tokens - these are
+human/session-only views), and **owner-scoped**: a robot not paired to the
+caller - including for admins - returns `404`, following the existing
+per-robot detail policy (fleet identity stays on `GET /devices/`).
+Malformed and unknown ids are indistinguishable from non-owned ones.
+`null` in any telemetry field means "not reported yet", never a fabricated
+value. No endpoint ever exposes credentials, pairing material, or parent
+fields.
+
+### `GET /api/v1/devices/{id}/state/`
+
+Live telemetry for the info view - exactly the fields `RobotState`/`Robot`
+store (no invented fields):
+
+```json
+{"online": true, "state": "sleeping", "battery_percent": 76, "rssi": -63,
+ "last_updated": "2026-10-03T10:15:00+06:00",
+ "last_seen": "2026-10-03T10:15:00+06:00", "firmware_version": "1.2.3"}
+```
+
+A robot that has never reported state returns the same key set with the
+telemetry fields `null` (`last_seen` null too, `firmware_version` still
+present).
+
+### `GET /api/v1/devices/{id}/events/`
+
+Robot event history (diagnostics/lifecycle), newest first. Optional
+`?limit=` - integer `1..100`, default `20`; anything else → `400
+{"limit": [...]}`.
+
+- `200` → `[{"event_type": "...", "payload": {...}, "timestamp": "..."}]`
+  (empty list when there are no events)
+
+### `GET /api/v1/devices/{id}/sensors/`
+
+Sensor readings, newest first, same `?limit=` contract as events.
+
+- `200` → `[{"sensor_type": "temperature", "value": 21.5, "timestamp": "..."}]`
+
+### `GET /api/v1/devices/{id}/configuration/`
+
+Read-only view of the robot's current `Configuration` version
+(`is_current=true`); no write path exists on this endpoint.
+
+- `200` → `{"version": 2, "data": {...}, "is_current": true}`; when no
+  current configuration exists: `{"version": null, "data": null,
+  "is_current": null}`
+- `data` values under secret-marked keys (`password`, `token`, `secret`,
+  `credential`, `api_key`, ...) are redacted to `"[redacted]"` before
+  leaving the backend
+
+### `GET /api/v1/devices/{id}/summary/`
+
+One-shot assembly for the panel's first load - the same data the
+individual endpoints above expose, composed in one response:
+
+```json
+{"robot": {…RobotSerializer…}, "state": {…state shape…},
+ "events": [ …newest 10… ], "configuration": {…configuration shape…}}
+```

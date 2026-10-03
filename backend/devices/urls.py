@@ -17,4 +17,29 @@ urlpatterns = [
         views.RobotCommandView.as_view(),
         name="api-robot-command",
     ),
+    path(
+        "devices/<str:pk>/state/",
+        views.RobotStateView.as_view(),
+        name="api-robot-state",
+    ),
+    path(
+        "devices/<str:pk>/events/",
+        views.RobotEventsView.as_view(),
+        name="api-robot-events",
+    ),
+    path(
+        "devices/<str:pk>/sensors/",
+        views.RobotSensorsView.as_view(),
+        name="api-robot-sensors",
+    ),
+    path(
+        "devices/<str:pk>/configuration/",
+        views.RobotConfigurationView.as_view(),
+        name="api-robot-configuration",
+    ),
+    path(
+        "devices/<str:pk>/summary/",
+        views.RobotControllerSummaryView.as_view(),
+        name="api-robot-summary",
+    ),
 ]

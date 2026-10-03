@@ -1,28 +1,34 @@
 from bson import ObjectId
 from rest_framework import status
-from rest_framework.exceptions import NotFound
+from rest_framework.exceptions import NotFound, ValidationError
 from rest_framework.permissions import AllowAny
 from rest_framework.response import Response
 from rest_framework.views import APIView
 
 from accounts.models import Parent
 from core.permissions import AuthRequired, IsAdminRole
+from core.semantic_actions import validate_semantic_action
 from mqtt_bridge.client import MqttError
 from mqtt_bridge.payloads import DeviceCommandSerializer
 from mqtt_bridge.publisher import publish_command
 
 from .authentication import DeviceJWTAuthentication
 from .exceptions import RobotCommandUnavailable
-from .models import Robot
+from .models import Robot, RobotState
 from .permissions import DeviceAuthenticated
 from .serializers import (
+    ConfigurationReadSerializer,
+    ControllerStateSerializer,
     DeviceChallengeSerializer,
     DevicePairSerializer,
     DeviceRegisterSerializer,
     DeviceTokenSerializer,
+    RobotEventReadSerializer,
     RobotSerializer,
+    SensorDataReadSerializer,
 )
 from .services import (
+    audit_robot_command,
     create_device_challenge,
     exchange_device_token,
     pair_robot,
@@ -37,6 +43,106 @@ def _client_ip(request):
 def _get_parent(request):
     parent, _ = Parent.objects.get_or_create(user=request.user)
     return parent
+
+
+def _get_owned_robot(request, pk):
+    """Owner-scoped robot resolution for read APIs: malformed, unknown and
+    non-owned ids are indistinguishable (404), the same rule as the robot
+    detail endpoint — resource existence is never leaked across parents."""
+    if not isinstance(pk, str) or not ObjectId.is_valid(pk):
+        raise NotFound()
+    parent = _get_parent(request)
+    robot = Robot.objects.filter(pk=ObjectId(pk), parent=parent).first()
+    if robot is None:
+        raise NotFound()
+    return robot
+
+
+LIST_DEFAULT_LIMIT = 20
+LIST_MAX_LIMIT = 100
+SUMMARY_EVENTS_LIMIT = 10
+
+
+def _bounded_limit(request):
+    raw = request.query_params.get("limit")
+    if raw is None:
+        return LIST_DEFAULT_LIMIT
+    try:
+        limit = int(raw)
+    except (TypeError, ValueError):
+        raise ValidationError({"limit": "Must be an integer."})
+    if limit < 1 or limit > LIST_MAX_LIMIT:
+        raise ValidationError(
+            {"limit": f"Must be between 1 and {LIST_MAX_LIMIT}."}
+        )
+    return limit
+
+
+def _state_payload(robot):
+    state_obj = RobotState.objects.filter(robot=robot).first()
+    if state_obj is None:
+        raw = {
+            "online": None,
+            "state": None,
+            "battery_percent": None,
+            "rssi": None,
+            "last_updated": None,
+        }
+    else:
+        raw = {
+            "online": state_obj.online,
+            "state": state_obj.state,
+            "battery_percent": state_obj.battery_percent,
+            "rssi": state_obj.rssi,
+            "last_updated": state_obj.last_updated,
+        }
+    raw["last_seen"] = robot.last_seen
+    raw["firmware_version"] = robot.firmware_version
+    return ControllerStateSerializer(raw).data
+
+
+# Defense-in-depth: configuration data must never expose credential
+# material, whoever writes it (read APIs never expose secrets).
+CONFIG_SECRET_MARKERS = (
+    "password",
+    "passwd",
+    "secret",
+    "token",
+    "credential",
+    "api_key",
+    "private_key",
+    "access_key",
+    "authorization",
+)
+
+
+def _redact_config_data(value):
+    if isinstance(value, dict):
+        redacted = {}
+        for key, item in value.items():
+            if any(marker in str(key).lower() for marker in CONFIG_SECRET_MARKERS):
+                redacted[key] = "[redacted]"
+            else:
+                redacted[key] = _redact_config_data(item)
+        return redacted
+    if isinstance(value, list):
+        return [_redact_config_data(item) for item in value]
+    return value
+
+
+def _configuration_payload(robot):
+    current = (
+        robot.configurations.filter(is_current=True).order_by("-version").first()
+    )
+    if current is None:
+        raw = {"version": None, "data": None, "is_current": None}
+    else:
+        raw = {
+            "version": current.version,
+            "data": _redact_config_data(current.data),
+            "is_current": current.is_current,
+        }
+    return ConfigurationReadSerializer(raw).data
 
 
 class DeviceRegisterView(APIView):
@@ -165,22 +271,20 @@ class RobotDetailView(APIView):
     http_method_names = ["get", "head", "options"]
 
     def get(self, request, pk):
-        parent = _get_parent(request)
-        if not isinstance(pk, str) or not ObjectId.is_valid(pk):
-            raise NotFound()
-        robot = Robot.objects.filter(pk=ObjectId(pk), parent=parent).first()
-        if robot is None:
-            raise NotFound()
+        robot = _get_owned_robot(request, pk)
         return Response(RobotSerializer(robot).data)
 
 
 class RobotCommandView(APIView):
     """Phase 8 command origin (Section 26): a parent (own robot only) or
-    admin (role-scoped, any robot) publishes a mechanical command envelope
+    admin (role-scoped, any robot) publishes a semantic command envelope
     through mqtt_bridge.publish_command — the view never touches the MQTT
-    client itself. Non-owned/unknown/malformed ids are indistinguishable
-    (404). Device Bearer tokens are not accepted here (session-only view):
-    commands originate from authenticated, ownership-checked humans."""
+    client itself. Envelope shape and semantic membership are both
+    validated before publishing (unknown/raw-hardware actions are 400), and
+    admin commands are audit-logged. Non-owned/unknown/malformed ids are
+    indistinguishable (404). Device Bearer tokens are not accepted here
+    (session-only view): commands originate from authenticated,
+    ownership-checked humans."""
 
     permission_classes = [AuthRequired]
     http_method_names = ["post"]
@@ -198,10 +302,15 @@ class RobotCommandView(APIView):
 
         serializer = DeviceCommandSerializer(data=request.data)
         serializer.is_valid(raise_exception=True)
+        validate_semantic_action(serializer.validated_data["action"])
         try:
             publish_command(robot, serializer.validated_data)
         except MqttError:
             raise RobotCommandUnavailable()
+        if request.user.role == "admin":
+            audit_robot_command(
+                actor=request.user, robot=robot, ip=_client_ip(request)
+            )
         return Response(
             {"detail": "Command published."},
             status=status.HTTP_200_OK,
@@ -217,3 +326,79 @@ class AdminRobotListView(APIView):
     def get(self, request):
         robots = Robot.objects.order_by("-created_at")
         return Response(RobotSerializer(robots, many=True).data)
+
+
+class RobotStateView(APIView):
+    """Owner-scoped live telemetry for the control panel (Section 23 info
+    view): exactly the fields RobotState/Robot store — never invents
+    fields. Nulls mean "not reported yet", not a fabricated value."""
+
+    permission_classes = [AuthRequired]
+    http_method_names = ["get", "head", "options"]
+
+    def get(self, request, pk):
+        robot = _get_owned_robot(request, pk)
+        return Response(_state_payload(robot))
+
+
+class RobotEventsView(APIView):
+    """Owner-scoped robot event history, newest first, bounded by
+    ?limit= (1..LIST_MAX_LIMIT, default LIST_DEFAULT_LIMIT)."""
+
+    permission_classes = [AuthRequired]
+    http_method_names = ["get", "head", "options"]
+
+    def get(self, request, pk):
+        robot = _get_owned_robot(request, pk)
+        limit = _bounded_limit(request)
+        events = robot.events.order_by("-timestamp", "-pk")[:limit]
+        return Response(RobotEventReadSerializer(events, many=True).data)
+
+
+class RobotSensorsView(APIView):
+    """Owner-scoped sensor readings, newest first, same bound contract as
+    the event history."""
+
+    permission_classes = [AuthRequired]
+    http_method_names = ["get", "head", "options"]
+
+    def get(self, request, pk):
+        robot = _get_owned_robot(request, pk)
+        limit = _bounded_limit(request)
+        readings = robot.sensor_data.order_by("-timestamp", "-pk")[:limit]
+        return Response(SensorDataReadSerializer(readings, many=True).data)
+
+
+class RobotConfigurationView(APIView):
+    """Owner-scoped read of the robot's current Configuration version —
+    read-only: no write path exists on this endpoint. Secret-keyed values
+    in `data` are redacted before leaving the backend."""
+
+    permission_classes = [AuthRequired]
+    http_method_names = ["get", "head", "options"]
+
+    def get(self, request, pk):
+        robot = _get_owned_robot(request, pk)
+        return Response(_configuration_payload(robot))
+
+
+class RobotControllerSummaryView(APIView):
+    """One-shot assembly for the control panel's first load: robot
+    identity + latest state + recent events + current configuration —
+    composed only from the data the individual read endpoints expose (no
+    new fields, no new ownership rules)."""
+
+    permission_classes = [AuthRequired]
+    http_method_names = ["get", "head", "options"]
+
+    def get(self, request, pk):
+        robot = _get_owned_robot(request, pk)
+        events = robot.events.order_by("-timestamp", "-pk")[:SUMMARY_EVENTS_LIMIT]
+        return Response(
+            {
+                "robot": RobotSerializer(robot).data,
+                "state": _state_payload(robot),
+                "events": RobotEventReadSerializer(events, many=True).data,
+                "configuration": _configuration_payload(robot),
+            }
+        )
