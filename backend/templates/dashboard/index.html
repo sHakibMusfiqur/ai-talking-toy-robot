@@ -2,82 +2,90 @@
 {% load static %}
 {% block title %}Overview{% endblock %}
 {% block body %}
-<div class="app-shell">
+<div class="flex min-h-screen">
   {% include "dashboard/partials/sidebar.html" with active_nav="overview" %}
-  <div class="app-main">
-    <header class="topbar">
-      <button type="button" class="nav-toggle" data-nav-toggle aria-expanded="false" aria-controls="sidebar">
-        <span class="nav-toggle-bar" aria-hidden="true"></span>
-        <span class="nav-toggle-bar" aria-hidden="true"></span>
-        <span class="nav-toggle-bar" aria-hidden="true"></span>
-        <span class="visually-hidden">Menu</span>
+  <div class="flex min-w-0 flex-1 flex-col">
+    <header class="sticky top-0 z-30 flex min-h-[64px] items-center gap-4 border-b border-line bg-base/85 px-5 backdrop-blur lg:px-8">
+      <button type="button" data-nav-toggle aria-expanded="false" aria-controls="sidebar"
+              class="flex h-11 w-11 flex-col items-center justify-center gap-[5px] rounded-xl border border-line bg-surface lg:hidden">
+        <span class="h-0.5 w-5 rounded bg-body" aria-hidden="true"></span>
+        <span class="h-0.5 w-5 rounded bg-body" aria-hidden="true"></span>
+        <span class="h-0.5 w-5 rounded bg-body" aria-hidden="true"></span>
+        <span class="sr-only">Menu</span>
       </button>
-      <h1 class="topbar-title">Overview</h1>
+      <h1 class="text-base font-semibold tracking-tight">Overview</h1>
+      <div class="ml-auto flex items-center gap-3">
+        <span class="hidden max-w-[220px] truncate text-sm text-muted sm:block" title="{{ user_email }}">{{ user_email }}</span>
+        <button type="button" data-logout class="btn btn-ghost px-4 text-xs">Sign out</button>
+      </div>
     </header>
-    <main class="content">
-      <section class="stats-grid" aria-label="Robot statistics">
-        <div class="stat-card glass" data-stat="total" data-value="{{ total_count }}">
-          <span class="stat-value">{{ total_count }}</span>
-          <span class="stat-label">Total robots</span>
+
+    <main class="mx-auto w-full max-w-6xl flex-1 px-5 py-8 lg:px-8">
+      <header class="mb-8">
+        <p class="text-xs uppercase tracking-[0.25em] text-faint">Control panel</p>
+        <h2 class="mt-2 text-3xl font-semibold tracking-tight" data-greeting>Welcome back</h2>
+        <p class="mt-1 text-sm text-muted">Your robots at a glance.</p>
+      </header>
+
+      <section class="grid grid-cols-2 gap-4 xl:grid-cols-4" aria-label="Robot statistics">
+        <div class="glass flex flex-col gap-1 rounded-2xl p-5" data-stat="total" data-value="{{ total_count }}">
+          <span class="text-3xl font-bold tracking-tight">{{ total_count }}</span>
+          <span class="flex items-center gap-2 text-xs uppercase tracking-[0.15em] text-faint">
+            <span class="h-2 w-2 rounded-full bg-info" aria-hidden="true"></span>Total robots
+          </span>
         </div>
-        <div class="stat-card glass" data-stat="online" data-value="{{ online_count }}">
-          <span class="stat-value">{{ online_count }}</span>
-          <span class="stat-label">Online</span>
+        <div class="glass flex flex-col gap-1 rounded-2xl p-5" data-stat="online" data-value="{{ online_count }}">
+          <span class="text-3xl font-bold tracking-tight">{{ online_count }}</span>
+          <span class="flex items-center gap-2 text-xs uppercase tracking-[0.15em] text-faint">
+            <span class="h-2 w-2 rounded-full bg-ok" aria-hidden="true"></span>Online
+          </span>
         </div>
-        <div class="stat-card glass" data-stat="offline" data-value="{{ offline_count }}">
-          <span class="stat-value">{{ offline_count }}</span>
-          <span class="stat-label">Offline</span>
+        <div class="glass flex flex-col gap-1 rounded-2xl p-5" data-stat="offline" data-value="{{ offline_count }}">
+          <span class="text-3xl font-bold tracking-tight">{{ offline_count }}</span>
+          <span class="flex items-center gap-2 text-xs uppercase tracking-[0.15em] text-faint">
+            <span class="h-2 w-2 rounded-full bg-faint" aria-hidden="true"></span>Offline
+          </span>
         </div>
-        <div class="stat-card glass" data-stat="recently-active"
+        <div class="glass flex flex-col gap-1 rounded-2xl p-5" data-stat="recently-active"
              data-value="{{ recently_active.id|default_if_none:'' }}">
-          <span class="stat-value stat-value-name">{{ recently_active.display_name|default:"N/A" }}</span>
-          <span class="stat-label">Recently active</span>
+          <span class="truncate text-xl font-bold tracking-tight">{{ recently_active.display_name|default:"Not available" }}</span>
+          <span class="flex items-center gap-2 text-xs uppercase tracking-[0.15em] text-faint">
+            <span class="h-2 w-2 rounded-full bg-crimson" aria-hidden="true"></span>Recently active
+          </span>
         </div>
       </section>
 
-      <section id="robots" class="section" aria-labelledby="robots-heading">
-        <div class="section-head">
-          <h2 id="robots-heading">Your robots</h2>
+      <section id="robots" class="mt-10 scroll-mt-24" aria-labelledby="robots-heading">
+        <div class="mb-5 flex items-baseline justify-between gap-4">
+          <h3 id="robots-heading" class="text-lg font-semibold">Your robots</h3>
         </div>
         {% if robot_cards %}
-        <ul class="robot-grid">
+        <ul class="grid list-none grid-cols-1 gap-5 p-0 sm:grid-cols-2 xl:grid-cols-3">
           {% for card in robot_cards %}
-          <li class="robot-card glass">
-            <div class="robot-card-head">
-              <span class="status-dot{% if card.online %} is-online{% endif %}" aria-hidden="true"></span>
-              <span class="status-text">{% if card.online %}Online{% else %}Offline{% endif %}</span>
+          <li class="glass flex flex-col gap-4 rounded-3xl p-6 transition-transform duration-150 hover:-translate-y-1">
+            <div class="flex items-center justify-between gap-3">
+              <span class="flex items-center gap-2 text-xs font-semibold uppercase tracking-[0.15em] {% if card.online %}text-ok{% else %}text-faint{% endif %}">
+                <span class="status-dot{% if card.online %} is-online{% endif %}" aria-hidden="true"></span>
+                {% if card.online %}Online{% else %}Offline{% endif %}
+              </span>
+              <span class="text-[11px] text-faint">Firmware</span>
             </div>
-            <h3 class="robot-card-title">{{ card.display_name }}</h3>
-            <dl class="robot-meta">
-              <div class="meta-row">
-                <dt>Device ID</dt>
-                <dd class="mono">{{ card.device_id }}</dd>
-              </div>
-              <div class="meta-row">
-                <dt>Battery</dt>
-                <dd>{{ card.battery_display }}</dd>
-              </div>
-              <div class="meta-row">
-                <dt>Signal</dt>
-                <dd>{{ card.rssi_display }}</dd>
-              </div>
-              <div class="meta-row">
-                <dt>Last seen</dt>
-                <dd>{{ card.last_seen_display }}</dd>
-              </div>
-              <div class="meta-row">
-                <dt>Firmware</dt>
-                <dd>{{ card.firmware_display }}</dd>
-              </div>
+            <h4 class="m-0 truncate text-lg font-semibold">{{ card.display_name }}</h4>
+            <dl class="m-0 flex flex-col gap-2 text-sm">
+              <div class="meta-row"><dt>Battery</dt><dd>{{ card.battery_display }}</dd></div>
+              <div class="meta-row"><dt>Signal</dt><dd>{{ card.rssi_display }}</dd></div>
+              <div class="meta-row"><dt>Last seen</dt><dd>{{ card.last_seen_display }}</dd></div>
+              <div class="meta-row"><dt>Firmware</dt><dd>{{ card.firmware_display }}</dd></div>
+              <div class="meta-row"><dt>Device ID</dt><dd class="font-mono text-xs">{{ card.device_id }}</dd></div>
             </dl>
-            <a class="btn btn-primary" href="{% url 'dashboard-controller' card.id %}">Open controller</a>
+            <a class="btn btn-primary mt-auto w-full" href="{% url 'dashboard-controller' card.id %}">Open controller</a>
           </li>
           {% endfor %}
         </ul>
         {% else %}
-        <div class="empty-state glass">
-          <p class="empty-title">No robots paired yet</p>
-          <p class="empty-text">Pair a robot to see it here and start controlling it.</p>
+        <div class="glass rounded-3xl px-6 py-14 text-center">
+          <p class="text-base font-semibold">No robots paired yet</p>
+          <p class="mt-2 text-sm text-muted">Pair a robot to see it here and start controlling it.</p>
         </div>
         {% endif %}
       </section>

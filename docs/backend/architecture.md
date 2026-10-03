@@ -610,3 +610,49 @@ No new REST endpoints, no `/auth/me`, no changes to API authorization
 rules; no AI/STT/LLM/TTS surface, no conversations/dashboards analytics,
 no OTA/firmware, no config writes, no frontend framework/build tooling;
 Phase 11 AI model/provider integration remains explicitly on hold.
+
+# Controller UI premium redesign (Tailwind CSS v3, addendum)
+
+UI-only pass over the panel defined above - structure, ownership and API
+contracts unchanged. Browser still talks only to Django (session cookie +
+`X-CSRFToken`, same-origin `fetch`); no SPA, no frontend framework, no
+browser-MQTT, no new endpoints.
+
+## Build pipeline (minimal, CLI-only)
+
+- `package.json` (devDependency `tailwindcss@^3.4` only) + `tailwind.config.js`
+  + `frontend/styles/input.css` -> `npm run build:css` ->
+  **`backend/static/css/app.css`** (minified, purged; generated artifact,
+  committed - CI does not run npm). `npm run watch` for development.
+- Tailwind scans `backend/templates/**/*.html` and `backend/static/js/**/*.js`.
+  Design tokens (`#C41E3A` primary, `#0B0B0D`/`#141417`/`#1B1B20` surfaces,
+  `#2A2A31`/`#3A3A44` borders, `#F5F5F7`/`#A1A1AA`/`#71717A` text) are defined
+  once in `tailwind.config.js`; handwritten CSS stays in `frontend/styles/
+  input.css` (base/components layers: glass cards, buttons, off-canvas
+  sidebar, skeletons, `prefers-reduced-motion`). Replaces the retired
+  `tokens.css`/`dashboard.css`.
+- Django: `STATICFILES_DIRS` (discovery) + `STATIC_ROOT` (collectstatic
+  validation target, git-ignored). No static hosting added - serving strategy
+  remains the deployment phase's concern.
+
+## Page structure (contract-preserving)
+
+- `base.html` (CSRF meta + `app.css`), `dashboard/partials/sidebar.html`
+  (persistent desktop / off-canvas below `lg`, `aria-expanded`+`aria-controls`
+  hamburger), `dashboard/index.html` (topbar with account/sign-out, local-time
+  greeting, stat cards, robot cards), `dashboard/controller.html` (identity
+  header with backend-driven connection badge, status metrics, command center,
+  events/sensors/config with loading/skeleton + empty + error + retry views,
+  read-only configuration), `registration/login.html` (same auth logic, now on
+  the shared design system).
+- JS layer unchanged architecturally: `api.js` = single API helper; `controller.js`
+  keeps 15s single-flight polling (paused while hidden, resumed on
+  `visibilitychange`) and the seven semantic actions with in-flight lock;
+  `dashboard.js` handles sidebar toggle, sign-out, greeting.
+
+## Test note
+
+`test_controller_page_has_no_hardware_terminology` parses rendered HTML with
+the stdlib `html.parser`, scans **user-visible text only** (attributes,
+`<head>`, script/style and per-run dynamic values excluded) and additionally
+scans the raw template source; the five forbidden terms are unchanged.

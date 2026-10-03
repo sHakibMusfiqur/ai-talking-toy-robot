@@ -6,10 +6,9 @@
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <meta name="csrf-token" content="{{ csrf_token }}">
   <title>{% block title %}Control Panel{% endblock %} · AI Talking Toy Robot</title>
-  <link rel="stylesheet" href="{% static 'css/tokens.css' %}">
-  <link rel="stylesheet" href="{% static 'css/dashboard.css' %}">
+  <link rel="stylesheet" href="{% static 'css/app.css' %}">
 </head>
-<body>
+<body class="min-h-screen font-sans">
 {% block body %}{% endblock %}
 {% block scripts %}{% endblock %}
 </body>

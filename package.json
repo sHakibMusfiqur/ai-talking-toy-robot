@@ -1,0 +1,12 @@
+{
+  "name": "ai-talking-toy-robot-ui",
+  "private": true,
+  "description": "Minimal Tailwind CSS v3 build for the Django Controller UI (no framework, no Vite).",
+  "scripts": {
+    "build:css": "tailwindcss -i frontend/styles/input.css -o backend/static/css/app.css --minify",
+    "watch:css": "tailwindcss -i frontend/styles/input.css -o backend/static/css/app.css --watch"
+  },
+  "devDependencies": {
+    "tailwindcss": "^3.4.17"
+  }
+}

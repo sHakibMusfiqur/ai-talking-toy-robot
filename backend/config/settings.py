@@ -128,9 +128,12 @@ USE_I18N = True
 USE_TZ = True
 
 STATIC_URL = "static/"
-# Project-level static assets for the web control panel (tokens + CSS/JS);
-# discovery only — serving follows the normal Django DEBUG/dev-server rule.
+# Web control panel assets (Tailwind build output + JS), discovery only —
+# serving follows the normal Django DEBUG/dev-server rule.
 STATICFILES_DIRS = [BASE_DIR / "static"]
+# collectstatic validation target (git-ignored); no static *hosting* is
+# configured here — production serving belongs to the deployment phase.
+STATIC_ROOT = BASE_DIR / "staticfiles"
 
 DEFAULT_AUTO_FIELD = "django_mongodb_backend.fields.ObjectIdAutoField"
 

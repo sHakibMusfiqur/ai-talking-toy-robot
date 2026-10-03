@@ -1,3 +1,5 @@
+/* Shared page behaviour: mobile sidebar toggle, sign out, greeting.
+   Self-contained (no RobotAPI dependency) so every page can load it. */
 (function () {
   "use strict";
 
@@ -10,9 +12,8 @@
     });
   }
 
-  var logoutButton = document.querySelector("[data-logout]");
-  if (logoutButton) {
-    logoutButton.addEventListener("click", function () {
+  document.querySelectorAll("[data-logout]").forEach(function (button) {
+    button.addEventListener("click", function () {
       var meta = document.querySelector('meta[name="csrf-token"]');
       var headers = {};
       if (meta) headers["X-CSRFToken"] = meta.getAttribute("content");
@@ -29,5 +30,14 @@
         }
       );
     });
+  });
+
+  /* Time-of-day greeting — purely local presentation, no user data. */
+  var greeting = document.querySelector("[data-greeting]");
+  if (greeting) {
+    var hour = new Date().getHours();
+    var phrase =
+      hour < 12 ? "Good morning" : hour < 18 ? "Good afternoon" : "Good evening";
+    greeting.textContent = phrase;
   }
 })();

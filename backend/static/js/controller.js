@@ -30,15 +30,29 @@
   }
 
   function formatNumber(value, suffix) {
-    if (value === null || value === undefined) return "N/A";
+    if (value === null || value === undefined) return "Not available";
     return String(value) + (suffix || "");
   }
 
   function formatTime(value) {
-    if (!value) return "N/A";
+    if (!value) return "Not available";
     var date = new Date(value);
-    if (isNaN(date.getTime())) return "N/A";
+    if (isNaN(date.getTime())) return "Not available";
     return date.toLocaleString();
+  }
+
+  function formatRelative(value) {
+    if (!value) return "Not available";
+    var date = new Date(value);
+    if (isNaN(date.getTime())) return "Not available";
+    var seconds = Math.round((Date.now() - date.getTime()) / 1000);
+    if (seconds < 0) seconds = 0;
+    if (seconds < 60) return seconds + " sec ago";
+    var minutes = Math.round(seconds / 60);
+    if (minutes < 60) return minutes + " min ago";
+    var hours = Math.round(minutes / 60);
+    if (hours < 24) return hours + " h ago";
+    return Math.round(hours / 24) + " d ago";
   }
 
   /* ---------- Status ---------- */
@@ -60,10 +74,10 @@
         : online
           ? "Online"
           : "Offline";
-    $("state-current").textContent = data.state || "N/A";
+    $("state-current").textContent = data.state || "Not available";
     $("state-battery").textContent = formatNumber(data.battery_percent, "%");
     $("state-rssi").textContent = formatNumber(data.rssi, " dBm");
-    $("state-last-seen").textContent = formatTime(data.last_seen);
+    $("state-last-seen").textContent = formatRelative(data.last_seen);
     $("offline-hint").hidden = online;
     setBlockState("state-block", "values");
     showView(stateViews, "values");
@@ -184,7 +198,7 @@
       value.className = "sensor-value";
       value.textContent =
         reading.value === null || reading.value === undefined
-          ? "N/A"
+          ? "Not available"
           : typeof reading.value === "string"
             ? reading.value
             : JSON.stringify(reading.value);
@@ -242,7 +256,7 @@
       "Version",
       configuration && configuration.version !== null
         ? String(configuration.version)
-        : "N/A"
+        : "Not available"
     );
     var data = configuration ? configuration.data : null;
     if (data && typeof data === "object" && !Array.isArray(data)) {
@@ -255,7 +269,7 @@
         );
       });
     } else {
-      appendConfigRow(list, "Settings", "N/A");
+      appendConfigRow(list, "Settings", "Not available");
     }
     setBlockState("config-block", "values");
     showView(configViews, "values");

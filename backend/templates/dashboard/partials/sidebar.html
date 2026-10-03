@@ -1,19 +1,18 @@
-<aside class="sidebar" id="sidebar">
-  <div class="sidebar-brand">
-    <span class="brand-mark" aria-hidden="true"></span>
-    <span class="brand-name">RoboPanel</span>
+<aside id="sidebar" class="sidebar-panel" aria-label="Main navigation">
+  <div class="flex items-center gap-3 px-2">
+    <span class="h-7 w-7 rounded-lg bg-crimson shadow-crimson-glow" aria-hidden="true"></span>
+    <span class="text-base font-bold tracking-wide">RoboPanel</span>
   </div>
-  <nav class="sidebar-nav" aria-label="Main navigation">
+  <nav class="flex flex-1 flex-col gap-2" aria-label="Panel sections">
     <a href="{% url 'dashboard' %}"
-       class="nav-link{% if active_nav == 'overview' %} is-active{% endif %}"
+       class="flex min-h-[44px] items-center rounded-xl border-l-2 px-3 text-sm font-medium transition-colors duration-150 {% if active_nav == 'overview' %}border-crimson bg-raised text-body{% else %}border-transparent text-muted hover:bg-raised hover:text-body{% endif %}"
        {% if active_nav == 'overview' %}aria-current="page"{% endif %}>Overview</a>
     <a href="{% url 'dashboard' %}#robots"
-       class="nav-link{% if active_nav == 'robots' %} is-active{% endif %}"
+       class="flex min-h-[44px] items-center rounded-xl border-l-2 px-3 text-sm font-medium transition-colors duration-150 {% if active_nav == 'robots' %}border-crimson bg-raised text-body{% else %}border-transparent text-muted hover:bg-raised hover:text-body{% endif %}"
        {% if active_nav == 'robots' %}aria-current="page"{% endif %}>Robots</a>
   </nav>
-  <div class="sidebar-account">
-    <p class="account-label">Account</p>
-    <p class="account-email" title="{{ user_email }}">{{ user_email }}</p>
-    <button type="button" class="btn btn-ghost btn-small" data-logout>Sign out</button>
+  <div class="border-t border-line pt-4">
+    <p class="px-2 text-[11px] uppercase tracking-[0.15em] text-faint">Account</p>
+    <p class="mt-1 break-all px-2 text-sm text-muted" title="{{ user_email }}">{{ user_email }}</p>
   </div>
 </aside>

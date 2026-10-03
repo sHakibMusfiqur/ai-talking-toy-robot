@@ -1,6 +1,8 @@
 import re
 import uuid
 from datetime import timedelta
+from html.parser import HTMLParser
+from pathlib import Path
 
 import pytest
 from configuration.models import Configuration
@@ -11,6 +13,46 @@ from rest_framework.test import APIClient
 from .helpers import setup_admin, setup_parent
 
 pytestmark = pytest.mark.django_db
+
+FORBIDDEN_HARDWARE_TERMS = ("servo", "pwm", "gpio", "motor", "voltage")
+
+
+class _VisibleTextExtractor(HTMLParser):
+    """Extract user-visible text nodes from rendered HTML.
+
+    Attribute values are never inspected — they carry dynamic identifiers,
+    CSRF tokens and URLs, which are data, not UI copy. <head>, <script>
+    and <style> content is skipped for the same reason (the authored copy
+    itself is covered by the raw-template scan in the terminology test).
+    """
+
+    _NON_VISIBLE = {"head", "script", "style"}
+
+    def __init__(self):
+        super().__init__(convert_charrefs=True)
+        self._skip_depth = 0
+        self._chunks = []
+
+    def handle_starttag(self, tag, attrs):
+        if tag in self._NON_VISIBLE:
+            self._skip_depth += 1
+
+    def handle_endtag(self, tag):
+        if tag in self._NON_VISIBLE and self._skip_depth:
+            self._skip_depth -= 1
+
+    def handle_data(self, data):
+        if not self._skip_depth:
+            self._chunks.append(data)
+
+    def text(self):
+        return " ".join(self._chunks).lower()
+
+
+def _visible_text(html):
+    extractor = _VisibleTextExtractor()
+    extractor.feed(html)
+    return extractor.text()
 
 
 def _robot(parent, nickname="", last_seen=None, firmware_version="1.2.3"):
@@ -208,9 +250,9 @@ SEMANTIC_LABELS = [
     "Wave",
     "Dance",
     "Nod",
-    "Tilt head",
+    "Tilt Head",
     "Point",
-    "Listening retry",
+    "Listening Retry",
 ]
 
 SEMANTIC_ACTIONS = [
@@ -235,9 +277,38 @@ def test_controller_page_exposes_only_semantic_actions(api_client, parent):
 
 def test_controller_page_has_no_hardware_terminology(api_client, parent):
     robot = _robot(parent)
-    html = api_client.get(controller_url(robot)).content.decode().lower()
-    for term in ("servo", "pwm", "gpio", "motor", "voltage"):
-        assert term not in html, term
+    html = api_client.get(controller_url(robot)).content.decode()
+    text = _visible_text(html)
+    # Sanity: extraction really sees the authored page copy (otherwise the
+    # scan below could pass vacuously).
+    assert "command center" in text
+    # Dynamic data interpolated into the page (device id, robot id,
+    # account e-mail) is unique per run — it is data, not UI copy, so it
+    # is removed generically by value instead of letting a random
+    # identifier be mistaken for hardware terminology.
+    for dynamic_value in (robot.device_id, str(robot.pk), parent.user.email):
+        text = text.replace(dynamic_value.lower(), "")
+    for term in FORBIDDEN_HARDWARE_TERMS:
+        assert term not in text, term
+    # The authored template source for this page must stay clean too —
+    # this is exhaustive over author-written copy regardless of data.
+    templates_dir = Path(__file__).resolve().parents[2] / "templates"
+    for template in (
+        "base.html",
+        "dashboard/controller.html",
+        "dashboard/partials/sidebar.html",
+    ):
+        source = (templates_dir / template).read_text(encoding="utf-8").lower()
+        for term in FORBIDDEN_HARDWARE_TERMS:
+            assert term not in source, f"{term} found in {template}"
+
+
+def test_hardware_terminology_scan_checks_visible_copy_not_attributes():
+    # A forbidden term inside an attribute value (dynamic data) is ignored…
+    assert "pwm" not in _visible_text('<div data-x="pwm" title="GPIO">Status</div>')
+    # …but the same term in user-visible copy is still detected.
+    visible = _visible_text("<div>Servo calibration</div>")
+    assert "servo" in visible
 
 
 def test_controller_page_is_read_only_no_forms(api_client, parent):
@@ -269,7 +340,6 @@ def test_login_next_defaults_to_dashboard(api_client):
 
 # --- CSRF -----------------------------------------------------------------
 
-
 def test_command_from_browser_requires_csrf_token(recorder):
     client = APIClient(enforce_csrf_checks=True)
     page = client.get("/login/")
@@ -297,3 +367,71 @@ def test_command_from_browser_requires_csrf_token(recorder):
     )
     assert bad.status_code == 403
     assert len(recorder) == 1
+
+
+# --- Premium UI / accessibility / build-source contracts -------------------
+
+
+def test_dashboard_mobile_nav_accessibility(api_client, parent):
+    _robot(parent)
+    html = api_client.get("/dashboard/").content.decode()
+    assert 'id="sidebar"' in html
+    assert "data-nav-toggle" in html
+    assert 'aria-expanded="false"' in html
+    assert 'aria-controls="sidebar"' in html
+    assert 'aria-label="Main navigation"' in html
+
+
+def test_controller_sections_expose_state_elements(api_client, parent):
+    robot = _robot(parent)
+    html = api_client.get(controller_url(robot)).content.decode()
+    for element_id in (
+        "state-loading",
+        "state-values",
+        "state-error",
+        "state-retry",
+        "events-loading",
+        "events-list",
+        "events-empty",
+        "events-error",
+        "events-retry",
+        "sensors-loading",
+        "sensors-list",
+        "sensors-empty",
+        "sensors-error",
+        "sensors-retry",
+        "config-loading",
+        "config-values",
+        "config-error",
+        "config-retry",
+    ):
+        assert f'id="{element_id}"' in html, element_id
+    assert 'aria-live="polite"' in html
+    assert 'role="group" aria-label="Robot commands"' in html
+
+
+def test_pages_link_generated_stylesheet(api_client, parent):
+    _robot(parent)
+    for url in ("/login/", "/dashboard/"):
+        html = api_client.get(url).content.decode()
+        assert "css/app.css" in html, url
+
+
+def test_tailwind_source_uses_v3_directives_and_reduced_motion():
+    source_path = (
+        Path(__file__).resolve().parents[3] / "frontend" / "styles" / "input.css"
+    )
+    source = source_path.read_text(encoding="utf-8")
+    assert "@tailwind base;" in source
+    assert "@tailwind components;" in source
+    assert "@tailwind utilities;" in source
+    assert "prefers-reduced-motion" in source
+
+
+def test_no_frontend_framework_or_mqtt_in_templates():
+    templates_root = Path(__file__).resolve().parents[3] / "backend" / "templates"
+    forbidden = ("react", "vue", "svelte", "angular", "mqtt://", "wss://", "vite")
+    for path in templates_root.rglob("*.html"):
+        content = path.read_text(encoding="utf-8").lower()
+        for term in forbidden:
+            assert term not in content, f"{term} found in {path.name}"
