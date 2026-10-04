@@ -180,6 +180,13 @@ MQTT_PUBLISH_TIMEOUT_SECONDS = float(
     os.environ.get("MQTT_PUBLISH_TIMEOUT_SECONDS", "5")
 )
 
+
+AI_SERVICE_URL = os.environ.get("AI_SERVICE_URL", "http://ai-service:8000")
+AI_SERVICE_INTERNAL_TOKEN = os.environ.get("AI_SERVICE_INTERNAL_TOKEN", "")
+AI_SERVICE_TIMEOUT_SECONDS = float(
+    os.environ.get("AI_SERVICE_TIMEOUT_SECONDS", "30")
+)
+
 LOGIN_REDIRECT_URL = "/"
 
 LOGOUT_REDIRECT_URL = "/login/"

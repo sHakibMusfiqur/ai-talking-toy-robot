@@ -21,4 +21,5 @@ urlpatterns = [
     ),
     path("api/v1/", include("accounts.urls")),
     path("api/v1/", include("devices.urls")),
+    path("api/v1/", include("conversations.urls")),
 ]

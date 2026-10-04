@@ -465,3 +465,99 @@ individual endpoints above expose, composed in one response:
 {"robot": {…RobotSerializer…}, "state": {…state shape…},
  "events": [ …newest 10… ], "configuration": {…configuration shape…}}
 ```
+
+# Phase 11 Conversation Turn Reference
+
+The backend's single AI-calling boundary (docs/01 Section 15): one `POST`
+turn endpoint that calls the internal AI service (above), persists the
+turn, and falls back locally when that service fails. The backend never
+talks to an AI provider - only the AI service does.
+
+### `POST /api/v1/conversations/turn/`
+
+`POST /api/v1/conversations/turn` (no trailing slash) is the same view,
+for firmware clients.
+
+Two accepted callers, one service path:
+
+- **Session cookie** (`sessionid` + `X-CSRFToken`, same rules as every
+  authenticated write): the caller must own **both** the robot and the
+  child profile. Owner-scoped for every role - admins are not elevated
+  (dashboard rule). Non-owned, unknown, or mismatched ids are
+  indistinguishable `404`.
+- **Device Bearer JWT** (Phase 7): the robot comes *only* from the token;
+  a body naming a different robot, or an unpaired robot (no owner, so no
+  child profile), is `404`. The child profile must belong to that robot's
+  parent.
+
+Request (JSON):
+
+```json
+{"robot_id": "…", "child_profile_id": "…",
+ "conversation_id": "… (optional - continue an existing conversation)",
+ "text": "Hello", "audio": "base64 (XOR with text)",
+ "language_hint": "en|bn|auto or null", "mode": "conversation|story|quiz"}
+```
+
+- Exactly one of `text` or `audio` - both or neither → `400
+  {"non_field_errors": ["Exactly one of 'text' or 'audio' must be
+  provided."]}`; `audio` must be non-empty valid base64 (`400` under
+  `audio`).
+- **`context` is not accepted**: it is assembled server-side from this
+  conversation's own recent turns (bounded; voice/blank-text turns
+  skipped; `memories` stays `[]` until Phase 14), so client input can
+  never inject history or memories (AR-5b).
+- Unknown fields → `400 {"<field>": ["Unexpected field."]}`; malformed
+  ids → `400 {"<field>": ["Not a valid id."]}`; missing ids → `400
+  {"<field>": ["This field is required."]}`.
+
+Order: authentication `401` → id syntax `400` → ownership `404` →
+remaining envelope `400`. A `400` only ever describes the caller's own
+input, never whether a resource exists.
+
+Response - the frozen AI Output Contract (exactly 8 fields), always
+`200`:
+
+```json
+{"conversation_id": "…", "text": "…", "language": "en|bn",
+ "emotion": "HAPPY|CURIOUS|THINKING|CONCERNED|NEUTRAL",
+ "action": "WAVE|NOD|TILT_HEAD|IDLE|POINT|LISTENING_RETRY",
+ "safety": {"flagged": false, "category": null, "action_taken": "ALLOWED"},
+ "audio": null, "memory_writes": [{"key": "…", "value": "…"}]}
+```
+
+Persisted per successful turn: child + robot `Message`, the robot
+message's `AIInteraction` (latency, emotion, action, full safety object),
+a `Conversation` row when `conversation_id` was omitted,
+`Conversation.language` = the output language, `Memory` rows for the
+accepted `memory_writes` (an entry whose key exceeds the 100-char column
+is skipped, never failing the turn), and a `SafetyEvent` when
+`safety.flagged` is true - linked to the child message, with the frozen
+`category`/`action_taken` plus a derived display severity (`BLOCKED` →
+`high`, `REDIRECTED` → `medium`, `ALLOWED_WITH_CAUTION`/`ALLOWED` →
+`low`).
+
+Hard-failure fallback (Section 15.3): when the AI service times out, is
+unreachable, returns a non-200/invalid body, or the internal token is not
+configured, the endpoint still answers `200` with the local fallback:
+
+```json
+{"conversation_id": "…", "text": "I'm having trouble thinking right now, ask me again in a bit.",
+ "language": "en", "emotion": "CONCERNED", "action": "IDLE",
+ "safety": null, "audio": null, "memory_writes": []}
+```
+
+The turn (child input + fallback reply) is still fully persisted and the
+`AIInteraction` is marked failed via `safety_flags = {"failed": true,
+"reason": "timeout|unavailable|http_error|invalid_response|config"}`.
+`safety: null` means *not evaluated* - never a fabricated "allowed". No
+`SafetyEvent` and no `Memory` rows are written on this path; there is no
+retry loop.
+
+Errors: `401` anonymous/device-token failures (single `{"detail": ...}`
+body), `405` any method other than `POST`, plus the `400`/`404` cases
+above.
+
+Raw child audio is forwarded to the AI service once and never stored:
+`Message.audio_reference` stays empty until Phase 12 defines audio
+transport storage.

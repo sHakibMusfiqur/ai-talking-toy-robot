@@ -656,3 +656,87 @@ browser-MQTT, no new endpoints.
 the stdlib `html.parser`, scans **user-visible text only** (attributes,
 `<head>`, script/style and per-run dynamic values excluded) and additionally
 scans the raw template source; the five forbidden terms are unchanged.
+
+# Phase 11 - AI <-> Backend Integration (addendum)
+
+Backend half of docs/01 Phase 11: `conversations/` now owns the single
+Django -> AI service call path, per-turn persistence, and the Section 15.3
+hard-failure fallback. AI model/provider integration stays on hold - the
+AI service is still the deterministic Phase 10 mock pipeline, and no
+provider SDK, key, or model hosting is touched.
+
+## Call path
+
+`POST /api/v1/conversations/turn/` (alias without trailing slash) ->
+`conversations.views.ConversationTurnView` ->
+`conversations.services.run_conversation_turn` ->
+`conversations.ai_client.call_ai_turn` (httpx) -> `POST
+/v1/conversation/turn` with `Authorization: Bearer $AI_SERVICE_INTERNAL_TOKEN`.
+
+- `conversations/ai_contract.py` is the backend-owned mirror of the frozen
+  Section 15 contract: `validate_ai_input()` self-checks the outbound
+  payload, `validate_ai_output()` strictly checks the response (exactly
+  the 8 fields + frozen enums; messages carry field names only, never
+  values). It never imports `ai_service` code - drift is caught by tests
+  written against the documented values.
+- Settings: `AI_SERVICE_URL` (default `http://ai-service:8000`),
+  `AI_SERVICE_INTERNAL_TOKEN` (empty default: the call fails closed, no
+  development bypass), `AI_SERVICE_TIMEOUT_SECONDS` (default 30).
+  All three are passed to the `django` service by Compose and documented
+  in `.env.example`. `ai-service` remains unpublished on any host port and
+  is deliberately NOT a `depends_on` of `django`.
+
+## Phase 11 decisions (recorded 2026-10-03)
+
+1. **Dual caller, one service path**: session (parent or admin) or device
+   Bearer JWT, both resolving to `robot` + `child_profile` before the same
+   orchestration runs. Ownership is owner-scoped for every role (admins
+   are not elevated - the dashboard rule); a device token is scoped to its
+   own robot; unknown/foreign/mismatched ids are indistinguishable `404`.
+2. **Validation order**: auth `401` -> id syntax `400` -> ownership `404`
+   -> remaining envelope `400` (Controller API ordering decision 4). A
+   `400` only ever reflects the caller's own input. Unknown request
+   fields are rejected (mirrors the strict AI contract), and
+   client-supplied `context` can never be accepted: context is assembled
+   server-side (AR-5b) from the conversation's own recent turns (bounded
+   at 10, blank/voice turns skipped) with `memories: []` - retrieval is
+   Phase 14.
+3. **Transactions vs network**: conversation creation and the entire
+   per-turn persistence run in `django_mongodb_backend.transaction.atomic()`
+   blocks; the httpx call runs outside every transaction (network I/O
+   never holds a Mongo transaction open - Phase 8 rule).
+4. **Persistence**: child `Message` (text, or empty for a voice turn;
+   `audio_reference` always empty - raw audio is forwarded once and never
+   stored), robot `Message`, `AIInteraction` on the robot message
+   (`latency_ms`, emotion, action, full safety object), `Memory` rows from
+   `memory_writes` (keys over the 100-char column are skipped without
+   failing the turn), and `Conversation.language` = latest output language.
+5. **SafetyEvent**: written only when `safety.flagged` is true, linked to
+   the *child* message (the flagged input - the robot reply is the
+   approved redirect, not the trigger), `category`/`action_taken` verbatim
+   from the frozen taxonomy, plus a derived display-only `severity`
+   (`BLOCKED` high, `REDIRECTED` medium, `ALLOWED_WITH_CAUTION`/`ALLOWED`
+   low). `reviewed_by` stays null; Section 30 access rules apply from the
+   moment these rows are written.
+6. **Hard-failure fallback** (Section 15.3 / Flow 19): any
+   `AIServiceError` (`config`, `timeout`, `unavailable`, `http_error`,
+   `invalid_response`) -> HTTP `200` with the canned fallback text,
+   `CONCERNED`/`IDLE`, `safety: null` (not evaluated), `memory_writes: []`,
+   and `language: en` (the canned text is English). The turn is still fully
+   persisted and the `AIInteraction` is marked failed via
+   `safety_flags={"failed": true, "reason": "<reason>"}`. No retry loop, no
+   SafetyEvent, no memory writes. The internal token and child input are
+   never logged or echoed.
+7. **Audit**: parent turns are not audited (Phase 8 / Section 28
+   convention); no new audit action was invented for this phase.
+
+## Phase 11 out of scope (unchanged later-phase boundaries)
+
+No real device audio path (Phase 12); no memory retrieval, context
+injection, or memory CRUD API (Phase 14 - write-side acceptance only); no
+conversation/safety-history read endpoints (Phase 17); no mode-specific
+pipeline (Phase 15); no conversation rate limiting yet (Section 28
+cost/abuse control still open - owner decision when to add it); no change
+to the frozen AI contract, semantic-action set, MQTT contract, device
+auth, ownership rules, or UI. AI model/provider integration remains
+explicitly on hold.

@@ -53,6 +53,10 @@ services:
       MQTT_BRIDGE_PASSWORD: ${MQTT_BRIDGE_PASSWORD:?MQTT_BRIDGE_PASSWORD must be set in .env}
       MQTT_ADMIN_USERNAME: "admin"
       MQTT_ADMIN_PASSWORD: ${MQTT_ADMIN_PASSWORD:?MQTT_ADMIN_PASSWORD must be set in .env}
+      # Phase 11: the only Django -> AI service call path (Section 15/25).
+      AI_SERVICE_URL: "http://ai-service:8000"
+      AI_SERVICE_INTERNAL_TOKEN: ${AI_SERVICE_INTERNAL_TOKEN:?AI_SERVICE_INTERNAL_TOKEN must be set in .env}
+      AI_SERVICE_TIMEOUT_SECONDS: ${AI_SERVICE_TIMEOUT_SECONDS:-30}
     ports:
       - "8000:8000"
     depends_on:
@@ -60,6 +64,8 @@ services:
         condition: service_healthy
       mosquitto:
         condition: service_healthy
+      # ai-service is intentionally NOT a dependency: an AI-service outage
+      # must never keep Django from starting (Phase 11 fallback handles it).
     command: ["sh", "-c", "python manage.py migrate && python manage.py runserver 0.0.0.0:8000"]
 
   ai-service:
