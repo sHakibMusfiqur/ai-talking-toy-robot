@@ -69,6 +69,9 @@ MIDDLEWARE = [
     "django.middleware.common.CommonMiddleware",
     "django.middleware.csrf.CsrfViewMiddleware",
     "django.contrib.auth.middleware.AuthenticationMiddleware",
+    # LOCAL UI TESTING ONLY: no-op unless DEBUG + explicit env opt-in +
+    # loopback request all hold (see core.local_ui_bypass).
+    "core.local_ui_bypass.LocalUiTestBypassMiddleware",
     "django.contrib.messages.middleware.MessageMiddleware",
     "django.middleware.clickjacking.XFrameOptionsMiddleware",
 ]
@@ -186,6 +189,16 @@ AI_SERVICE_INTERNAL_TOKEN = os.environ.get("AI_SERVICE_INTERNAL_TOKEN", "")
 AI_SERVICE_TIMEOUT_SECONDS = float(
     os.environ.get("AI_SERVICE_TIMEOUT_SECONDS", "30")
 )
+
+# LOCAL UI TESTING ONLY (never enable in production): an explicit,
+# default-off development opt-in that lets a loopback request act as the
+# parent named by LOCAL_UI_TEST_USER_EMAIL so the server-rendered
+# dashboard/controller can be inspected without the login page. Requires
+# DEBUG=True on top of these flags - see core.local_ui_bypass.
+LOCAL_UI_TEST_BYPASS = os.environ.get(
+    "LOCAL_UI_TEST_BYPASS", "false"
+).lower() in ("1", "true", "yes")
+LOCAL_UI_TEST_USER_EMAIL = os.environ.get("LOCAL_UI_TEST_USER_EMAIL", "")
 
 LOGIN_REDIRECT_URL = "/"
 
