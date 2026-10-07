@@ -1,5 +1,6 @@
 /** Tailwind CSS v3 config — scans Django templates + panel JS only.
- *  No React/Vue/Vite: the CLI writes straight into backend/static/css/. */
+ *  No React/Vue/Vite: the CLI writes straight into backend/static/css/.
+ *  Palette matches the approved RoboPanel reference screenshot. */
 module.exports = {
   content: [
     "backend/templates/**/*.html",
@@ -9,21 +10,24 @@ module.exports = {
     extend: {
       colors: {
         crimson: {
-          DEFAULT: "#C41E3A",
-          hover: "#A81831",
+          DEFAULT: "#E9003F",
+          hover: "#FF315C",
+          light: "#FF315C",
+          deep: "#B80033",
         },
-        base: "#0B0B0D",
-        surface: "#141417",
-        raised: "#1B1B20",
-        line: "#2A2A31",
-        "line-strong": "#3A3A44",
-        body: "#F5F5F7",
-        muted: "#A1A1AA",
-        faint: "#71717A",
-        ok: "#22C55E",
+        base: "#08090D",
+        shell: "#0D0F16",
+        surface: "#141720",
+        raised: "#181B24",
+        line: "#FFFFFF14",
+        "line-strong": "#FFFFFF24",
+        body: "#F5F7FA",
+        muted: "#A1A7B3",
+        faint: "#6E7684",
+        ok: "#00D084",
         warn: "#F59E0B",
         bad: "#EF4444",
-        info: "#38BDF8",
+        info: "#3B82F6",
       },
       fontFamily: {
         sans: [
@@ -46,7 +50,9 @@ module.exports = {
       },
       boxShadow: {
         panel: "0 10px 40px -12px rgba(0, 0, 0, 0.65)",
-        "crimson-glow": "0 0 28px -6px rgba(196, 30, 58, 0.45)",
+        "crimson-glow": "0 0 28px -6px rgba(233, 0, 63, 0.5)",
+        "red-ambient":
+          "0 24px 60px -28px rgba(233, 0, 63, 0.35), 0 18px 40px -24px rgba(0, 0, 0, 0.8)",
       },
     },
   },

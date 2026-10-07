@@ -1,0 +1,29 @@
+<header class="app-header sticky top-0 z-30 flex min-h-[64px] items-center gap-4 border-b border-line px-5 lg:px-8">
+  <button type="button" class="nav-burger lg:hidden" data-nav-toggle aria-expanded="false" aria-controls="sidebar">
+    <span class="h-0.5 w-5 rounded bg-body" aria-hidden="true"></span>
+    <span class="h-0.5 w-5 rounded bg-body" aria-hidden="true"></span>
+    <span class="h-0.5 w-5 rounded bg-body" aria-hidden="true"></span>
+    <span class="sr-only">Menu</span>
+  </button>
+
+  <span class="hidden text-sm font-semibold tracking-tight text-muted sm:block" aria-hidden="true">RoboPanel<span class="text-faint"> / </span>Controller</span>
+
+  <div class="ml-auto flex items-center gap-2">
+    <button type="button" class="icon-btn" aria-label="Notifications">
+      <svg viewBox="0 0 24 24" class="h-5 w-5" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M18 8.5a6 6 0 1 0-12 0c0 6-2.5 7.5-2.5 7.5h17S18 14.5 18 8.5z"/><path d="M10.3 19.5a2 2 0 0 0 3.4 0"/></svg>
+      <span class="absolute right-2.5 top-2.5 h-2 w-2 rounded-full bg-crimson" aria-hidden="true"></span>
+    </button>
+
+    <div class="relative" data-account-menu>
+      <button type="button" class="account-trigger" data-account-toggle aria-haspopup="true" aria-expanded="false" aria-controls="account-dropdown">
+        <span class="account-avatar" aria-hidden="true">{{ user_email|slice:":1"|upper }}</span>
+        <span class="hidden text-sm sm:block">Parent Account</span>
+        <svg viewBox="0 0 24 24" class="h-4 w-4 shrink-0 text-faint" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M6 9.5 12 15.5 18 9.5"/></svg>
+      </button>
+      <div class="account-dropdown" id="account-dropdown" hidden>
+        <p class="account-email" title="{{ user_email }}">{{ user_email }}</p>
+        <button type="button" class="account-item" data-logout>Sign out</button>
+      </div>
+    </div>
+  </div>
+</header>

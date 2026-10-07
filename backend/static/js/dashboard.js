@@ -32,6 +32,29 @@
     });
   });
 
+  /* Account dropdown — present only on pages including the shared header. */
+  var accountMenu = document.querySelector("[data-account-menu]");
+  if (accountMenu) {
+    var accountToggle = accountMenu.querySelector("[data-account-toggle]");
+    var accountDropdown = document.getElementById("account-dropdown");
+    if (accountToggle && accountDropdown) {
+      var setAccountOpen = function (open) {
+        accountDropdown.hidden = !open;
+        accountToggle.setAttribute("aria-expanded", open ? "true" : "false");
+      };
+      accountToggle.addEventListener("click", function (event) {
+        event.stopPropagation();
+        setAccountOpen(accountDropdown.hidden);
+      });
+      document.addEventListener("click", function (event) {
+        if (!accountMenu.contains(event.target)) setAccountOpen(false);
+      });
+      document.addEventListener("keydown", function (event) {
+        if (event.key === "Escape") setAccountOpen(false);
+      });
+    }
+  }
+
   /* Time-of-day greeting — purely local presentation, no user data. */
   var greeting = document.querySelector("[data-greeting]");
   if (greeting) {

@@ -1,0 +1,141 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 600 760" width="600" height="760" role="img" aria-label="Robot preview placeholder">
+  <defs>
+    <radialGradient id="stageGlow" cx="50%" cy="44%" r="58%">
+      <stop offset="0%" stop-color="#E9003F" stop-opacity="0.55"/>
+      <stop offset="45%" stop-color="#7A0A24" stop-opacity="0.35"/>
+      <stop offset="100%" stop-color="#08090D" stop-opacity="0"/>
+    </radialGradient>
+    <radialGradient id="floorGlow" cx="50%" cy="50%" r="50%">
+      <stop offset="0%" stop-color="#E9003F" stop-opacity="0.4"/>
+      <stop offset="100%" stop-color="#E9003F" stop-opacity="0"/>
+    </radialGradient>
+    <linearGradient id="bgWash" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0%" stop-color="#0B0B10"/>
+      <stop offset="60%" stop-color="#12060B"/>
+      <stop offset="100%" stop-color="#08090D"/>
+    </linearGradient>
+    <linearGradient id="shellGrad" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0%" stop-color="#FFFFFF"/>
+      <stop offset="55%" stop-color="#E8EAF0"/>
+      <stop offset="100%" stop-color="#B9BECB"/>
+    </linearGradient>
+    <linearGradient id="shellGrad2" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0%" stop-color="#FFFFFF"/>
+      <stop offset="100%" stop-color="#C9CDD8"/>
+    </linearGradient>
+    <linearGradient id="visorGrad" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0%" stop-color="#1B1D24"/>
+      <stop offset="100%" stop-color="#0A0B0F"/>
+    </linearGradient>
+    <linearGradient id="redCore" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0%" stop-color="#FF315C"/>
+      <stop offset="100%" stop-color="#E9003F"/>
+    </linearGradient>
+    <filter id="softGlow" x="-60%" y="-60%" width="220%" height="220%">
+      <feGaussianBlur stdDeviation="7" result="b"/>
+      <feMerge>
+        <feMergeNode in="b"/>
+        <feMergeNode in="SourceGraphic"/>
+      </feMerge>
+    </filter>
+    <filter id="tinyGlow" x="-80%" y="-80%" width="260%" height="260%">
+      <feGaussianBlur stdDeviation="3.5" result="b"/>
+      <feMerge>
+        <feMergeNode in="b"/>
+        <feMergeNode in="SourceGraphic"/>
+      </feMerge>
+    </filter>
+    <filter id="dropShadow" x="-40%" y="-40%" width="180%" height="180%">
+      <feDropShadow dx="0" dy="16" stdDeviation="18" flood-color="#000000" flood-opacity="0.6"/>
+    </filter>
+  </defs>
+
+  <!-- Stage -->
+  <rect width="600" height="760" fill="url(#bgWash)"/>
+  <rect width="600" height="760" fill="url(#stageGlow)"/>
+  <ellipse cx="300" cy="648" rx="230" ry="60" fill="url(#floorGlow)"/>
+  <ellipse cx="300" cy="652" rx="150" ry="26" fill="#000000" opacity="0.55"/>
+  <path d="M0 640 Q300 604 600 640 L600 760 L0 760 Z" fill="#0A0A0F" opacity="0.85"/>
+  <rect x="0" y="0" width="600" height="760" fill="none"/>
+
+  <!-- Robot -->
+  <g filter="url(#dropShadow)">
+    <!-- Antenna -->
+    <path d="M300 118 L300 86" stroke="#8A90A0" stroke-width="7" stroke-linecap="round"/>
+    <circle cx="300" cy="78" r="11" fill="url(#redCore)" filter="url(#tinyGlow)"/>
+
+    <!-- Ear pods -->
+    <rect x="168" y="196" width="30" height="74" rx="15" fill="url(#redCore)"/>
+    <rect x="402" y="196" width="30" height="74" rx="15" fill="url(#redCore)"/>
+
+    <!-- Head shell -->
+    <g filter="url(#softGlow)">
+      <rect x="186" y="150" width="228" height="176" rx="76" fill="url(#shellGrad)"/>
+      <rect x="186" y="150" width="228" height="176" rx="76" fill="none" stroke="#9BA1B0" stroke-width="3" opacity="0.6"/>
+      <!-- Visor -->
+      <rect x="214" y="184" width="172" height="110" rx="46" fill="url(#visorGrad)"/>
+      <!-- Eyes -->
+      <circle cx="266" cy="232" r="17" fill="#FF315C" filter="url(#tinyGlow)"/>
+      <circle cx="334" cy="232" r="17" fill="#FF315C" filter="url(#tinyGlow)"/>
+      <circle cx="271" cy="226" r="5.5" fill="#FFFFFF" opacity="0.85"/>
+      <circle cx="339" cy="226" r="5.5" fill="#FFFFFF" opacity="0.85"/>
+      <!-- Smile -->
+      <path d="M272 264 Q300 286 328 264" fill="none" stroke="#FF315C" stroke-width="7" stroke-linecap="round"/>
+    </g>
+
+    <!-- Neck -->
+    <rect x="278" y="318" width="44" height="26" rx="12" fill="#9BA1B0"/>
+
+    <!-- Left arm (down) -->
+    <g>
+      <path d="M196 402 Q158 424 152 486" fill="none" stroke="url(#shellGrad2)" stroke-width="40" stroke-linecap="round"/>
+      <circle cx="150" cy="500" r="24" fill="#14151B"/>
+      <rect x="130" y="470" width="40" height="24" rx="12" fill="url(#redCore)"/>
+    </g>
+
+    <!-- Right arm (waving) -->
+    <g>
+      <path d="M404 402 Q452 356 462 288" fill="none" stroke="url(#shellGrad2)" stroke-width="40" stroke-linecap="round"/>
+      <rect x="440" y="252" width="44" height="26" rx="13" fill="url(#redCore)"/>
+      <!-- Hand -->
+      <g fill="url(#shellGrad2)">
+        <rect x="442" y="196" width="46" height="60" rx="20"/>
+        <rect x="440" y="176" width="13" height="42" rx="6.5"/>
+        <rect x="456" y="168" width="13" height="50" rx="6.5"/>
+        <rect x="472" y="174" width="13" height="44" rx="6.5"/>
+        <rect x="487" y="188" width="12" height="34" rx="6" transform="rotate(18 493 205)"/>
+      </g>
+    </g>
+
+    <!-- Torso -->
+    <g filter="url(#softGlow)">
+      <rect x="216" y="336" width="168" height="164" rx="56" fill="url(#shellGrad)"/>
+      <rect x="216" y="336" width="168" height="164" rx="56" fill="none" stroke="#9BA1B0" stroke-width="3" opacity="0.6"/>
+      <rect x="240" y="360" width="120" height="66" rx="26" fill="#101116"/>
+      <circle cx="300" cy="426" r="34" fill="url(#redCore)" filter="url(#softGlow)"/>
+      <circle cx="300" cy="426" r="15" fill="#08090D" opacity="0.85"/>
+      <circle cx="300" cy="426" r="8" fill="#FFFFFF" opacity="0.9"/>
+      <path d="M252 470 H348" stroke="#9BA1B0" stroke-width="6" stroke-linecap="round" opacity="0.5"/>
+    </g>
+
+    <!-- Hip -->
+    <rect x="252" y="486" width="96" height="40" rx="20" fill="#9BA1B0"/>
+
+    <!-- Legs -->
+    <g>
+      <rect x="236" y="510" width="58" height="112" rx="26" fill="url(#shellGrad2)"/>
+      <rect x="306" y="510" width="58" height="112" rx="26" fill="url(#shellGrad2)"/>
+      <rect x="240" y="576" width="50" height="22" rx="11" fill="url(#redCore)"/>
+      <rect x="310" y="576" width="50" height="22" rx="11" fill="url(#redCore)"/>
+      <!-- Feet -->
+      <path d="M226 618 h78 v20 a18 18 0 0 1 -18 18 h-58 a26 26 0 0 1 -26 -26 z" fill="#14151B"/>
+      <path d="M296 618 h78 a26 26 0 0 1 -26 38 h-58 a18 18 0 0 1 -18 -18 z" fill="#14151B"/>
+      <path d="M226 618 h78" stroke="#3A3D48" stroke-width="4"/>
+      <path d="M296 618 h78" stroke="#3A3D48" stroke-width="4"/>
+    </g>
+  </g>
+
+  <!-- Ambient reflections -->
+  <ellipse cx="300" cy="668" rx="140" ry="18" fill="#E9003F" opacity="0.16"/>
+  <rect width="600" height="760" fill="none" stroke="rgba(255,255,255,0.05)" stroke-width="2"/>
+</svg>

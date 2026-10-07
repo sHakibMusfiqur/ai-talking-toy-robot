@@ -12,7 +12,7 @@
   }
 
   ::selection {
-    background: rgba(196, 30, 58, 0.35);
+    background: rgba(233, 0, 63, 0.35);
   }
 
   :focus-visible {
@@ -22,9 +22,9 @@
 }
 
 @layer components {
-  /* Restrained glassmorphism card */
+  /* Restrained card: solid layered surface + 1px low-opacity border */
   .glass {
-    @apply rounded-2xl border border-white/10 bg-white/[0.04] shadow-panel backdrop-blur-xl;
+    @apply rounded-2xl border border-line bg-surface shadow-panel;
   }
 
   /* Buttons: 44px minimum touch target, keyboard focus from base layer */
@@ -33,23 +33,111 @@
   }
 
   .btn-primary {
-    @apply bg-crimson text-white hover:bg-crimson-hover active:scale-[0.98];
+    @apply bg-gradient-to-br from-crimson to-crimson-light text-white hover:from-crimson-hover hover:to-crimson-light active:scale-[0.98];
   }
 
   .btn-ghost {
     @apply border border-line-strong bg-transparent text-body hover:bg-raised;
   }
 
+  /* Command buttons — tall tiles, icon above uppercase label */
   .btn-command {
-    @apply min-h-[48px] flex-col items-start rounded-xl border border-line bg-raised px-4 py-2 text-left text-body hover:border-crimson/70 hover:bg-surface;
+    @apply relative flex min-h-[86px] flex-col items-center justify-center gap-2.5 rounded-xl border border-line bg-raised px-4 py-4 text-center text-[13px] font-bold uppercase tracking-[0.08em] text-body transition-all duration-150;
+  }
+
+  .btn-command:hover {
+    border-color: rgba(233, 0, 63, 0.6);
+    background-color: rgba(233, 0, 63, 0.1);
+    box-shadow: 0 0 22px -8px rgba(233, 0, 63, 0.55);
+    color: #fff;
+  }
+
+  .btn-command:active {
+    transform: scale(0.985);
+  }
+
+  .btn-command-accent {
+    border-color: transparent;
+    background-image: linear-gradient(135deg, #e9003f 0%, #ff315c 100%);
+    color: #fff;
+    box-shadow: 0 0 28px -6px rgba(233, 0, 63, 0.6);
+  }
+
+  .btn-command-accent:hover {
+    border-color: transparent;
+    background-image: linear-gradient(135deg, #e9003f 0%, #ff315c 100%);
+    box-shadow: 0 0 34px -6px rgba(233, 0, 63, 0.75);
   }
 
   .btn-command.is-busy {
-    @apply border-info opacity-80;
+    @apply border-info ring-2 ring-info/50;
   }
 
   .btn-command.is-ok {
-    @apply border-ok;
+    @apply border-ok ring-2 ring-ok/50;
+  }
+
+  /* Status pill in the controller identity card */
+  .status-pill {
+    @apply inline-flex items-center gap-2 rounded-full border border-line bg-raised px-3.5 py-1.5 text-xs font-bold uppercase tracking-[0.1em] text-muted transition-colors duration-200;
+  }
+
+  .status-pill.is-online {
+    border-color: transparent;
+    background-color: #00d084;
+    color: #fff;
+  }
+
+  .status-pill.is-online .status-dot {
+    background-color: rgba(255, 255, 255, 0.95);
+    box-shadow: none;
+    animation: none;
+  }
+
+  .wifi-tile {
+    @apply bg-white/5 text-faint transition-colors duration-200;
+  }
+
+  .wifi-tile.is-online {
+    @apply bg-ok/10 text-ok;
+  }
+
+  /* Telemetry metric cards */
+  .metric-ico {
+    @apply grid h-10 w-10 shrink-0 place-items-center rounded-xl;
+  }
+
+  .metric-ico-ok {
+    @apply bg-ok/10 text-ok;
+  }
+
+  .metric-ico-red {
+    @apply bg-crimson/15 text-crimson;
+  }
+
+  .metric-ico-neutral {
+    @apply bg-white/5 text-body;
+  }
+
+  .stat-track {
+    @apply h-2 w-full overflow-hidden rounded-full bg-white/10;
+  }
+
+  .stat-fill {
+    @apply block h-full rounded-full bg-ok transition-[width] duration-500;
+  }
+
+  .stat-fill.is-low {
+    @apply bg-warn;
+  }
+
+  /* Signal visualization bars (rendered by controller.js) */
+  .sig-bar {
+    @apply w-[3px] rounded-full bg-white/10;
+  }
+
+  .sig-bar.is-on {
+    @apply bg-crimson;
   }
 
   /* Status indicators */
@@ -58,23 +146,24 @@
   }
 
   .status-dot.is-online {
-    @apply bg-ok shadow-[0_0_10px_rgba(34,197,94,0.7)];
+    @apply bg-ok;
+    box-shadow: 0 0 10px rgba(0, 208, 132, 0.7);
     animation: status-pulse 2.4s ease-in-out infinite;
   }
 
   @keyframes status-pulse {
     0%,
     100% {
-      box-shadow: 0 0 10px rgba(34, 197, 94, 0.7);
+      box-shadow: 0 0 10px rgba(0, 208, 132, 0.7);
     }
     50% {
-      box-shadow: 0 0 2px rgba(34, 197, 94, 0.35);
+      box-shadow: 0 0 2px rgba(0, 208, 132, 0.35);
     }
   }
 
-  /* Off-canvas sidebar (mobile/tablet); desktop keeps it persistent */
+  /* Sidebar navigation */
   .sidebar-panel {
-    @apply flex h-screen w-64 shrink-0 flex-col gap-6 border-r border-line bg-surface px-4 py-6 lg:sticky lg:top-0;
+    @apply flex h-screen w-60 shrink-0 flex-col gap-6 border-r border-line bg-shell px-4 py-6 lg:sticky lg:top-0;
   }
 
   @media (max-width: 1023px) {
@@ -91,6 +180,38 @@
       visibility: visible;
       transform: translateX(0);
     }
+  }
+
+  .nav-item {
+    @apply flex min-h-[44px] items-center gap-3 rounded-xl border border-transparent px-3 text-sm font-medium text-muted transition-colors duration-150;
+  }
+
+  .nav-item:hover {
+    @apply bg-raised text-body;
+  }
+
+  .nav-item.nav-active {
+    background-image: linear-gradient(135deg, #e9003f 0%, #ff315c 100%);
+    @apply font-semibold text-white;
+    box-shadow: 0 8px 24px -8px rgba(233, 0, 63, 0.6),
+      inset 0 1px 0 0 rgba(255, 255, 255, 0.16);
+  }
+
+  .nav-item.nav-active:hover {
+    background-image: linear-gradient(135deg, #e9003f 0%, #ff315c 100%);
+    @apply text-white;
+  }
+
+  .nav-soon {
+    @apply flex min-h-[44px] cursor-not-allowed items-center gap-3 rounded-xl px-3 text-sm font-medium text-faint opacity-60;
+  }
+
+  .soon-badge {
+    @apply ml-auto rounded-full border border-line px-2 py-0.5 text-[9px] font-semibold uppercase tracking-[0.12em] text-faint;
+  }
+
+  .logo-tile {
+    @apply grid h-9 w-9 shrink-0 place-items-center rounded-xl bg-gradient-to-br from-crimson to-crimson-light text-white shadow-crimson-glow;
   }
 
   /* Skeleton loaders (dark premium theme) */
@@ -122,48 +243,247 @@
 
   /* JS-generated markup (controller.js builds these with textContent) */
   .event-item {
-    @apply flex flex-wrap items-baseline gap-x-4 gap-y-1 border-b border-line pb-3 last:border-b-0 last:pb-0;
+    @apply relative flex items-start gap-4 pb-4 pl-5 last:pb-0;
+  }
+
+  .event-body {
+    @apply flex min-w-0 flex-1 flex-col gap-1;
   }
 
   .event-type {
-    @apply font-mono text-sm font-semibold text-body;
+    @apply text-sm font-semibold text-body;
   }
 
   .event-time {
-    @apply text-xs text-faint;
+    @apply shrink-0 pt-0.5 text-xs tabular-nums text-faint;
   }
 
   .event-payload {
-    @apply break-all font-mono text-xs text-muted;
+    @apply break-all text-xs text-muted;
   }
 
   .sensor-card {
-    @apply flex flex-col gap-1 rounded-xl border border-line bg-surface p-4;
+    @apply flex items-center gap-3 border-b border-line py-3 last:border-b-0;
+  }
+
+  .sensor-body {
+    @apply flex min-w-0 flex-1 flex-col;
   }
 
   .sensor-type {
-    @apply text-xs uppercase tracking-wider text-faint;
+    @apply truncate text-sm font-medium text-muted;
   }
 
   .sensor-value {
-    @apply break-all text-sm font-semibold text-body;
+    @apply shrink-0 break-all text-right text-sm font-bold text-body;
   }
 
   .sensor-time {
-    @apply text-xs text-faint;
+    @apply text-xs tabular-nums text-faint;
   }
 
   .meta-row {
-    @apply flex items-baseline justify-between gap-4 text-sm;
+    @apply flex items-center justify-between gap-4 text-sm;
   }
 
   .meta-row dt {
-    @apply shrink-0 text-faint;
+    @apply shrink-0 text-muted;
   }
 
   .meta-row dd {
-    @apply m-0 break-all text-right text-body;
+    @apply m-0 break-all text-right font-semibold text-body;
   }
+
+  .meta-ico {
+    @apply shrink-0 text-faint;
+  }
+
+  .config-row {
+    @apply py-2.5;
+  }
+}
+
+/* Top header: translucent bar with subtle red/purple ambient tint */
+.app-header {
+  background: radial-gradient(
+      700px 140px at 85% -40%,
+      rgba(233, 0, 63, 0.16),
+      transparent 70%
+    ),
+    radial-gradient(
+      500px 130px at 60% -50%,
+      rgba(124, 58, 237, 0.1),
+      transparent 70%
+    ),
+    rgba(8, 9, 13, 0.88);
+  backdrop-filter: blur(14px);
+}
+
+/* Account dropdown */
+.account-trigger {
+  @apply flex items-center gap-2.5 rounded-xl px-2 py-1.5 text-sm text-body transition-colors hover:bg-white/5;
+}
+
+.account-avatar {
+  @apply grid h-8 w-8 shrink-0 place-items-center rounded-full bg-gradient-to-br from-crimson to-crimson-light text-xs font-bold text-white;
+}
+
+.account-dropdown {
+  @apply absolute right-0 top-[calc(100%+8px)] z-50 w-60 rounded-xl border border-line bg-raised p-2 shadow-panel;
+  animation: menu-in 0.15s ease-out;
+}
+
+.account-email {
+  @apply break-all px-3 py-2 text-xs text-muted;
+}
+
+.account-item {
+  @apply flex min-h-[40px] w-full items-center rounded-lg px-3 text-left text-sm text-body transition-colors hover:bg-white/5;
+}
+
+.icon-btn {
+  @apply relative grid h-10 w-10 place-items-center rounded-xl text-muted transition-colors hover:bg-white/5 hover:text-body;
+}
+
+.nav-burger {
+  @apply flex h-11 w-11 flex-col items-center justify-center gap-[5px] rounded-xl border border-line bg-surface transition-colors hover:bg-raised;
+}
+
+/* Status card + preview ambient red glow (reference screenshot) */
+.status-card {
+  box-shadow: 0 0 60px -24px rgba(233, 0, 63, 0.45),
+    0 18px 40px -24px rgba(0, 0, 0, 0.8);
+}
+
+.preview-card {
+  box-shadow: 0 24px 60px -28px rgba(233, 0, 63, 0.4),
+    0 18px 40px -24px rgba(0, 0, 0, 0.85);
+}
+
+@keyframes menu-in {
+  from {
+    opacity: 0;
+    transform: translateY(-4px);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+
+/* Toasts (ui/toast.js builds these) — kept outside @layer so purge never drops them */
+.toast-host {
+  pointer-events: none;
+  position: fixed;
+  right: 1.25rem;
+  bottom: 1.25rem;
+  z-index: 60;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: 0.625rem;
+}
+
+.toast {
+  pointer-events: auto;
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  max-width: 22rem;
+  padding: 0.75rem 1rem;
+  border-radius: 0.75rem;
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  background: rgba(24, 27, 36, 0.97);
+  color: #f5f7fa;
+  font-size: 0.875rem;
+  line-height: 1.25rem;
+  box-shadow: 0 10px 40px -12px rgba(0, 0, 0, 0.65);
+  backdrop-filter: blur(10px);
+  animation: toast-in 0.25s ease-out;
+}
+
+.toast.is-success {
+  border-color: rgba(0, 208, 132, 0.4);
+}
+
+.toast.is-error {
+  border-color: rgba(239, 68, 68, 0.4);
+}
+
+.toast-dot {
+  width: 0.625rem;
+  height: 0.625rem;
+  flex-shrink: 0;
+  border-radius: 9999px;
+  background: #e9003f;
+}
+
+.toast.is-success .toast-dot {
+  background: #00d084;
+}
+
+.toast.is-error .toast-dot {
+  background: #ef4444;
+}
+
+.toast-message {
+  flex: 1 1 auto;
+}
+
+.toast.is-leaving {
+  animation: toast-out 0.2s ease-in forwards;
+}
+
+@keyframes toast-in {
+  from {
+    opacity: 0;
+    transform: translateY(8px) scale(0.98);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+
+@keyframes toast-out {
+  to {
+    opacity: 0;
+    transform: translateY(6px);
+  }
+}
+
+/* Event timeline visuals — kept outside @layer so purge never drops them */
+.event-item::before {
+  content: "";
+  position: absolute;
+  left: 0;
+  top: 0.4rem;
+  width: 0.5rem;
+  height: 0.5rem;
+  border-radius: 9999px;
+  background: theme("colors.ok");
+}
+
+.event-item::after {
+  content: "";
+  position: absolute;
+  left: 0.24rem;
+  top: 1.15rem;
+  bottom: 0;
+  width: 1px;
+  background: rgba(255, 255, 255, 0.08);
+}
+
+.event-item:last-child::after {
+  display: none;
+}
+
+.event-item[data-tone="hot"]::before {
+  background: theme("colors.crimson.DEFAULT");
+}
+
+.event-item[data-tone="info"]::before {
+  background: theme("colors.info");
 }
 
 @media (prefers-reduced-motion: reduce) {

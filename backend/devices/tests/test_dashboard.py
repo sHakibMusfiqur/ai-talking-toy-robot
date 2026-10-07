@@ -279,19 +279,14 @@ def test_controller_page_has_no_hardware_terminology(api_client, parent):
     robot = _robot(parent)
     html = api_client.get(controller_url(robot)).content.decode()
     text = _visible_text(html)
-    # Sanity: extraction really sees the authored page copy (otherwise the
-    # scan below could pass vacuously).
-    assert "command center" in text
-    # Dynamic data interpolated into the page (device id, robot id,
-    # account e-mail) is unique per run — it is data, not UI copy, so it
-    # is removed generically by value instead of letting a random
-    # identifier be mistaken for hardware terminology.
+    
+    assert "robot actions" in text
+   
     for dynamic_value in (robot.device_id, str(robot.pk), parent.user.email):
         text = text.replace(dynamic_value.lower(), "")
     for term in FORBIDDEN_HARDWARE_TERMS:
         assert term not in text, term
-    # The authored template source for this page must stay clean too —
-    # this is exhaustive over author-written copy regardless of data.
+  
     templates_dir = Path(__file__).resolve().parents[2] / "templates"
     for template in (
         "base.html",
@@ -304,9 +299,9 @@ def test_controller_page_has_no_hardware_terminology(api_client, parent):
 
 
 def test_hardware_terminology_scan_checks_visible_copy_not_attributes():
-    # A forbidden term inside an attribute value (dynamic data) is ignored…
+    
     assert "pwm" not in _visible_text('<div data-x="pwm" title="GPIO">Status</div>')
-    # …but the same term in user-visible copy is still detected.
+   
     visible = _visible_text("<div>Servo calibration</div>")
     assert "servo" in visible
 
@@ -435,3 +430,44 @@ def test_no_frontend_framework_or_mqtt_in_templates():
         content = path.read_text(encoding="utf-8").lower()
         for term in forbidden:
             assert term not in content, f"{term} found in {path.name}"
+
+
+# --- UI-only phase: mock service layer + disabled future sections ----------
+
+
+def test_controller_page_loads_mock_service_layer(api_client, parent):
+    robot = _robot(parent, nickname="MockLayerBot")
+    html = api_client.get(controller_url(robot)).content.decode()
+    for asset in (
+        "js/mocks/robotMock.js",
+        "js/services/robotMockService.js",
+        "js/services/robotCommandService.js",
+        "js/ui/toast.js",
+    ):
+        assert asset in html, asset
+    assert "img/robot-placeholder.svg" in html
+
+
+def test_controller_page_uses_local_placeholder_only(api_client, parent):
+    robot = _robot(parent)
+    html = api_client.get(controller_url(robot)).content.decode()
+    assert 'src="http' not in html
+    assert 'href="http' not in html
+    assert 'src="/static/img/robot-placeholder.svg"' in html
+
+
+def test_sidebar_future_sections_are_disabled_not_linked(api_client, parent):
+    _robot(parent)
+    html = api_client.get("/dashboard/").content.decode()
+    assert html.count('aria-disabled="true"') >= 3
+    for label in ("Conversations", "Events", "Settings", "Soon"):
+        assert label in html, label
+    for section in ("conversations", "events", "settings"):
+        assert not re.search(rf'href="[^"]*{section}', html, re.I), section
+
+
+def test_sidebar_controller_link_targets_controller_page(api_client, parent):
+    robot = _robot(parent, nickname="NavBot")
+    html = api_client.get(controller_url(robot)).content.decode()
+    assert f'href="/dashboard/robots/{robot.pk}/"' in html
+    assert "Robot Controller" in html

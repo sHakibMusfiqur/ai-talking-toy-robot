@@ -2,10 +2,10 @@
   "use strict";
 
   var main = document.querySelector("main[data-robot-id]");
-  if (!main || !window.RobotAPI) return;
+  if (!main || !window.RobotMockService || !window.RobotCommandService) return;
 
   var ROBOT_ID = main.getAttribute("data-robot-id");
-  var API = window.RobotAPI;
+  var API = window.RobotMockService;
   var POLL_MS = 15000;
 
   function $(elementId) {
@@ -34,25 +34,119 @@
     return String(value) + (suffix || "");
   }
 
-  function formatTime(value) {
-    if (!value) return "Not available";
-    var date = new Date(value);
-    if (isNaN(date.getTime())) return "Not available";
-    return date.toLocaleString();
-  }
-
   function formatRelative(value) {
     if (!value) return "Not available";
     var date = new Date(value);
     if (isNaN(date.getTime())) return "Not available";
     var seconds = Math.round((Date.now() - date.getTime()) / 1000);
     if (seconds < 0) seconds = 0;
+    if (seconds < 5) return "Just now";
     if (seconds < 60) return seconds + " sec ago";
     var minutes = Math.round(seconds / 60);
     if (minutes < 60) return minutes + " min ago";
     var hours = Math.round(minutes / 60);
     if (hours < 24) return hours + " h ago";
     return Math.round(hours / 24) + " d ago";
+  }
+
+  function formatClock(value) {
+    if (!value) return "Not available";
+    var date = new Date(value);
+    if (isNaN(date.getTime())) return "Not available";
+    return date.toLocaleTimeString([], {
+      hour: "2-digit",
+      minute: "2-digit",
+      second: "2-digit",
+      hour12: false
+    });
+  }
+
+  function humanize(value) {
+    if (value === null || value === undefined || value === "") return "event";
+    return String(value).replace(/[_.\-]+/g, " ");
+  }
+
+  var SVG_NS = "http://www.w3.org/2000/svg";
+
+  function svgIcon(paths) {
+    var svg = document.createElementNS(SVG_NS, "svg");
+    svg.setAttribute("viewBox", "0 0 24 24");
+    svg.setAttribute("class", "h-4 w-4 shrink-0");
+    svg.setAttribute("aria-hidden", "true");
+    svg.setAttribute("fill", "none");
+    svg.setAttribute("stroke", "currentColor");
+    svg.setAttribute("stroke-width", "2");
+    svg.setAttribute("stroke-linecap", "round");
+    svg.setAttribute("stroke-linejoin", "round");
+    paths.forEach(function (d) {
+      var path = document.createElementNS(SVG_NS, "path");
+      path.setAttribute("d", d);
+      svg.appendChild(path);
+    });
+    return svg;
+  }
+
+  var SENSOR_ICONS = {
+    battery: ["M3 8.5h14v7H3zM21 11v2M6 11.5v1.5"],
+    rssi: ["M4 18v-3M9 18v-6M14 18v-9M19 18v-12"],
+    signal: ["M4 18v-3M9 18v-6M14 18v-9M19 18v-12"],
+    temperature: ["M14 14.8V5a2 2 0 0 0-4 0v9.8a4 4 0 1 0 4 0z"],
+    state: [
+      "M12 15a3 3 0 1 0 0-6 3 3 0 0 0 0 6z",
+      "M12 3.5v2.2M12 18.3v2.2M3.5 12h2.2M18.3 12h2.2M5.9 5.9l1.6 1.6M16.5 16.5l1.6 1.6M18.1 5.9l-1.6 1.6M7.5 16.5l-1.6 1.6"
+    ],
+    motion: ["M3 12h4l2.5-6 4 12L16 12h5"],
+    heartbeat: ["M3 12h4l2.5-6 4 12L16 12h5"],
+    last_seen: ["M12 4a8 8 0 1 0 0 16 8 8 0 0 0 0-16z", "M12 7.5V12l3 1.8"]
+  };
+  var SENSOR_ICON_FALLBACK = ["M12 8.5a3.5 3.5 0 1 0 0 7 3.5 3.5 0 0 0 0-7z"];
+
+  /* Signal meter: 16 vertical bars, level derived from RSSI. */
+  var SIGNAL_HEIGHTS = [34, 52, 44, 63, 55, 72, 64, 80, 71, 88, 78, 95, 84, 100, 90, 97];
+
+  function ensureSignalBars(meter) {
+    if (!meter) return;
+    if (meter.childElementCount === SIGNAL_HEIGHTS.length) return;
+    while (meter.firstChild) meter.removeChild(meter.firstChild);
+    SIGNAL_HEIGHTS.forEach(function (height) {
+      var bar = document.createElement("span");
+      bar.className = "sig-bar";
+      bar.style.height = height + "%";
+      meter.appendChild(bar);
+    });
+  }
+
+  function signalCount(rssi) {
+    if (typeof rssi !== "number" || isNaN(rssi)) return 0;
+    if (rssi >= -55) return 16;
+    if (rssi >= -62) return 13;
+    if (rssi >= -70) return 10;
+    if (rssi >= -78) return 7;
+    if (rssi >= -85) return 4;
+    return 2;
+  }
+
+  /* State sparkline: rolling online/offline samples from real polls. */
+  var sparkSamples = [];
+
+  function pushSparkSample(isOnline) {
+    var line = $("state-spark-line");
+    if (!line) return;
+    sparkSamples.push(isOnline ? 1 : 0);
+    if (sparkSamples.length > 40) sparkSamples.shift();
+    var count = sparkSamples.length;
+    var points = [];
+    if (count === 1) {
+      var y0 = sparkSamples[0] ? 8 : 34;
+      points.push("0," + y0, "100," + y0);
+    } else {
+      for (var i = 0; i < count; i++) {
+        var x = (i / (count - 1)) * 100;
+        var y = sparkSamples[i] ? 8 : 34;
+        points.push(x + "," + y);
+      }
+    }
+    line.setAttribute("points", points.join(" "));
   }
 
   /* ---------- Status ---------- */
@@ -79,6 +173,48 @@
     $("state-rssi").textContent = formatNumber(data.rssi, " dBm");
     $("state-last-seen").textContent = formatRelative(data.last_seen);
     $("offline-hint").hidden = online;
+
+    var uptime = $("state-uptime");
+    if (uptime) uptime.textContent = data.uptime || "Not available";
+    var uptimeSub = $("state-uptime-sub");
+    if (uptimeSub) {
+      uptimeSub.textContent = data.uptime
+        ? online
+          ? "Online"
+          : "Offline"
+        : "Not reported by robot yet";
+    }
+
+    var pill = $("state-pill");
+    if (pill) pill.classList.toggle("is-online", online);
+    var wifi = $("identity-wifi");
+    if (wifi) wifi.classList.toggle("is-online", online);
+
+    var bar = $("battery-bar");
+    if (bar) {
+      var battery = data.battery_percent;
+      var hasBattery = typeof battery === "number" && !isNaN(battery);
+      bar.style.width = (hasBattery ? Math.max(0, Math.min(100, battery)) : 0) + "%";
+      bar.classList.toggle("is-low", hasBattery && battery <= 20);
+    }
+
+    var meter = $("signal-meter");
+    if (meter) {
+      ensureSignalBars(meter);
+      var lit = signalCount(data.rssi);
+      var bars = meter.querySelectorAll(".sig-bar");
+      for (var i = 0; i < bars.length; i++) {
+        bars[i].classList.toggle("is-on", i < lit);
+      }
+    }
+
+    var line = $("state-spark-line");
+    if (line && data.spark_points) {
+      line.setAttribute("points", data.spark_points);
+    } else if (data.online === true || data.online === false) {
+      pushSparkSample(online);
+    }
+
     setBlockState("state-block", "values");
     showView(stateViews, "values");
   }
@@ -119,6 +255,13 @@
     error: $("events-error")
   };
 
+  function eventTone(type) {
+    var text = String(type || "").toLowerCase();
+    if (text.indexOf("command") !== -1) return "hot";
+    if (text.indexOf("state") !== -1) return "info";
+    return "ok";
+  }
+
   function renderEvents(events) {
     var list = $("events-list");
     while (list.firstChild) list.removeChild(list.firstChild);
@@ -130,26 +273,40 @@
     events.forEach(function (event) {
       var item = document.createElement("li");
       item.className = "event-item";
+      item.setAttribute(
+        "data-tone",
+        event.tone || eventTone(event.event_type)
+      );
+
+      var body = document.createElement("div");
+      body.className = "event-body";
 
       var type = document.createElement("span");
-      type.className = "event-type mono";
-      type.textContent = event.event_type || "event";
-      item.appendChild(type);
+      type.className = "event-type";
+      type.textContent = event.title || humanize(event.event_type);
+      body.appendChild(type);
 
-      var time = document.createElement("time");
-      time.className = "event-time";
-      time.textContent = formatTime(event.timestamp);
-      item.appendChild(time);
-
-      if (event.payload !== null && event.payload !== undefined) {
-        var payload = document.createElement("span");
-        payload.className = "event-payload mono";
-        payload.textContent =
+      var detail = document.createElement("span");
+      detail.className = "event-payload";
+      if (event.subtitle) {
+        detail.textContent = event.subtitle;
+      } else if (event.payload !== null && event.payload !== undefined) {
+        detail.textContent =
           typeof event.payload === "string"
             ? event.payload
             : JSON.stringify(event.payload);
-        item.appendChild(payload);
+      } else {
+        detail.textContent = formatRelative(event.timestamp);
       }
+      body.appendChild(detail);
+
+      item.appendChild(body);
+
+      var time = document.createElement("time");
+      time.className = "event-time";
+      time.textContent = formatClock(event.timestamp);
+      item.appendChild(time);
+
       list.appendChild(item);
     });
     setBlockState("events-block", "values");
@@ -189,10 +346,22 @@
       var card = document.createElement("div");
       card.className = "sensor-card";
 
+      var iconWrap = document.createElement("span");
+      iconWrap.className = "grid h-8 w-8 shrink-0 place-items-center rounded-lg bg-raised text-muted";
+      iconWrap.setAttribute("aria-hidden", "true");
+      var iconKey = String(reading.sensor_type || "").toLowerCase();
+      iconWrap.appendChild(svgIcon(SENSOR_ICONS[iconKey] || SENSOR_ICON_FALLBACK));
+      card.appendChild(iconWrap);
+
+      var body = document.createElement("div");
+      body.className = "sensor-body";
+
       var type = document.createElement("span");
       type.className = "sensor-type";
-      type.textContent = reading.sensor_type || "sensor";
-      card.appendChild(type);
+      type.textContent = reading.label || humanize(reading.sensor_type || "sensor");
+      body.appendChild(type);
+
+      card.appendChild(body);
 
       var value = document.createElement("span");
       value.className = "sensor-value";
@@ -203,11 +372,6 @@
             ? reading.value
             : JSON.stringify(reading.value);
       card.appendChild(value);
-
-      var time = document.createElement("span");
-      time.className = "sensor-time";
-      time.textContent = formatTime(reading.timestamp);
-      card.appendChild(time);
 
       list.appendChild(card);
     });
@@ -235,13 +399,51 @@
     error: $("config-error")
   };
 
+  var CONFIG_ICON_VERSION = [
+    "M14 3H7a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V8z",
+    "M14 3v5h5"
+  ];
+  var CONFIG_ICON_GLOBE = [
+    "M12 3a9 9 0 1 0 0 18 9 9 0 0 0 0-18z",
+    "M3.5 9.5h17M3.5 14.5h17",
+    "M12 3c2.4 2.4 3.6 5.4 3.6 9S14.4 18.6 12 21c-2.4-2.4-3.6-5.4-3.6-9S9.6 5.4 12 3z"
+  ];
+  var CONFIG_ICON_SPEAKER = [
+    "M4 9.5h4L13 5v14l-5-4.5H4z",
+    "M16.5 8.5a5 5 0 0 1 0 7"
+  ];
+  var CONFIG_ICON_SUN = [
+    "M12 8a4 4 0 1 0 0 8 4 4 0 0 0 0-8z",
+    "M12 3v2.2M12 18.8V21M3 12h2.2M18.8 12H21M5.5 5.5l1.6 1.6M16.9 16.9l1.6 1.6M18.5 5.5l-1.6 1.6M7.1 16.9l-1.6 1.6"
+  ];
+  var CONFIG_ICON_WIFI = [
+    "M2.5 9.5a14.5 14.5 0 0 1 19 0M5.5 12.8a10 10 0 0 1 13 0M8.7 16.1a5.5 5.5 0 0 1 6.6 0M12 19.5h.01"
+  ];
+  var CONFIG_ICON_GEAR = [
+    "M12 15a3 3 0 1 0 0-6 3 3 0 0 0 0 6z",
+    "M12 3.5v2.2M12 18.3v2.2M3.5 12h2.2M18.3 12h2.2M5.9 5.9l1.6 1.6M16.5 16.5l1.6 1.6M18.1 5.9l-1.6 1.6M7.5 16.5l-1.6 1.6"
+  ];
+
+  var CONFIG_ICONS = {
+    "Configuration Version": CONFIG_ICON_VERSION,
+    "Language": CONFIG_ICON_GLOBE,
+    "Volume": CONFIG_ICON_SPEAKER,
+    "LED Brightness": CONFIG_ICON_SUN,
+    "Wi-Fi Mode": CONFIG_ICON_WIFI,
+    "Behavior Mode": CONFIG_ICON_GEAR
+  };
+
   function appendConfigRow(list, label, valueText) {
     var row = document.createElement("div");
-    row.className = "meta-row";
+    row.className = "meta-row config-row";
+    var iconWrap = document.createElement("span");
+    iconWrap.className = "meta-ico";
+    iconWrap.setAttribute("aria-hidden", "true");
+    iconWrap.appendChild(svgIcon(CONFIG_ICONS[label] || CONFIG_ICON_GEAR));
+    row.appendChild(iconWrap);
     var dt = document.createElement("dt");
     dt.textContent = label;
     var dd = document.createElement("dd");
-    dd.className = "mono";
     dd.textContent = valueText;
     row.appendChild(dt);
     row.appendChild(dd);
@@ -253,7 +455,7 @@
     while (list.firstChild) list.removeChild(list.firstChild);
     appendConfigRow(
       list,
-      "Version",
+      "Configuration Version",
       configuration && configuration.version !== null
         ? String(configuration.version)
         : "Not available"
@@ -305,24 +507,43 @@
     });
   }
 
-  function sendCommand(button) {
-    if (commandInFlight) return;
-    commandInFlight = true;
-    setCommandsDisabled(true);
+  function clearCommandStates() {
     commandButtons.forEach(function (other) {
       other.classList.remove("is-ok");
       other.classList.remove("is-busy");
     });
+  }
+
+  function refreshEventsQuietly() {
+    API.getEvents(ROBOT_ID, 20).then(renderEvents, function () {
+      /* Keep the last rendered list if a refresh fails. */
+    });
+  }
+
+  function sendCommand(button) {
+    if (commandInFlight) return;
+    commandInFlight = true;
+    setCommandsDisabled(true);
+    clearCommandStates();
     button.classList.add("is-busy");
     var label = button.textContent.trim();
-    setCommandStatus("Sending " + label + "…", null);
-    API.sendCommand(ROBOT_ID, button.getAttribute("data-action")).then(
+    setCommandStatus("Queuing " + label + "…", null);
+    window.RobotCommandService.sendRobotCommand(
+      button.getAttribute("data-action")
+    ).then(
       function () {
         commandInFlight = false;
         setCommandsDisabled(false);
         button.classList.remove("is-busy");
         button.classList.add("is-ok");
-        setCommandStatus(label + " sent.", "is-ok");
+        setCommandStatus(label + " queued.", "is-ok");
+        if (window.RoboToast) {
+          window.RoboToast.show(
+            "Command " + label.toUpperCase() + " queued",
+            "success"
+          );
+        }
+        refreshEventsQuietly();
         quietStateRefresh();
       },
       function (error) {
@@ -330,6 +551,9 @@
         setCommandsDisabled(false);
         button.classList.remove("is-busy");
         setCommandStatus(errorMessage(error), "is-error");
+        if (window.RoboToast) {
+          window.RoboToast.show(errorMessage(error), "error");
+        }
       }
     );
   }
