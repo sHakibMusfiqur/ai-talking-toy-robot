@@ -1,4 +1,4 @@
-# AI Talking Toy Robot — Agent Rules
+﻿# AI Talking Toy Robot â€” Agent Rules
 
 ## Project State
 
@@ -18,11 +18,11 @@ If requirements conflict or are incomplete, stop and ask the project owner. Neve
 
 ## Current Starting Point
 
-Implementation starts at **Part 2 — Phase 5: Django Foundation**.
+Implementation starts at **Part 2 â€” Phase 5: Django Foundation**.
 
 Part 1 (ESP32 firmware) will be implemented separately using the agreed ESP32 development workflow and is not to be implemented during Part 2 Phase 5 unless explicitly requested.
 
-Part 3 (AI Chat Service: STT → LLM → Safety → TTS) is externally owned and is integrated by API; do not implement its internals.
+Part 3 (AI Chat Service: STT â†’ LLM â†’ Safety â†’ TTS) is externally owned and is integrated by API; do not implement its internals.
 
 ## Phase Discipline
 
@@ -83,7 +83,7 @@ Every phase must have automated tests appropriate to its scope. Security and own
 
 ## Decision Records (appended 2026-09-29)
 
-- **2026-09-29 — MongoDB replaces PostgreSQL** for Part 2 (owner-authorized; full record in `docs/01-MASTER-SYSTEM-PLAN.md`). All `docs/` PostgreSQL references are historical — do not "restore" PostgreSQL without a new authorized decision record.
+- **2026-09-29 â€” MongoDB replaces PostgreSQL** for Part 2 (owner-authorized; full record in `docs/01-MASTER-SYSTEM-PLAN.md`). All `docs/` PostgreSQL references are historical â€” do not "restore" PostgreSQL without a new authorized decision record.
 
 ## Local Commands & Conventions (project-authored, 2026-09-29)
 
@@ -100,7 +100,7 @@ docker compose --env-file .env -f infra/docker-compose.yml up -d --build
 - Layout: `backend/` (Django project `config`, apps `core`, `accounts`, generated contrib migrations in `mongo_migrations/`), `infra/` (Compose + Mongo healthcheck), `docs/` (source plans + API/backend docs).
 - Hard rules: ObjectIds as JSON strings (no integer counters); non-owned resources return 404, never 403; identical 401 bodies for login failures (no existence leak); `GET /health` (no trailing slash) returns 200 directly; session cookie + CSRF for authenticated writes; ownership never settable by client input; no secrets committed (`.env` git-ignored).
 - Use `django_mongodb_backend.transaction.atomic()` for multi-document writes (Django's `django.db.transaction` is unsupported on this backend).
-- Phase 5 acceptance: `pytest` (41 tests) green + `manage.py check` clean before any phase report. No linter is configured yet (dev deps = pytest only) — add one and record its command here if introduced.
+- Phase 5 acceptance: `pytest` (41 tests) green + `manage.py check` clean before any phase report. No linter is configured yet (dev deps = pytest only) â€” add one and record its command here if introduced.
 
 ### Phase 8 additions (2026-09-30)
 
@@ -110,9 +110,9 @@ docker compose --env-file .env -f infra/docker-compose.yml up -d --build
 
 ### Phase 9 additions (2026-10-01)
 
-- AI service tests (run from `ai_service/`, host venv, no Docker needed): `..\.venv\Scripts\python.exe -m pytest` — **58 tests** green. Backend suite must stay at **223 tests** green.
-- Deps: `ai_service/requirements.txt` (fastapi/uvicorn pins) + `ai_service/requirements-dev.txt` (httpx/pytest). No AI provider SDKs or keys are installed — Phase 9 is deterministic mocks only.
-- `AI_SERVICE_INTERNAL_TOKEN` must be set in `.env` (Compose fails fast without it; `.env.example` holds a placeholder). Compose service `ai-service` is internal-only — never add a `ports:` mapping to it.
+- AI service tests (run from `ai_service/`, host venv, no Docker needed): `..\.venv\Scripts\python.exe -m pytest` â€” **58 tests** green. Backend suite must stay at **223 tests** green.
+- Deps: `ai_service/requirements.txt` (fastapi/uvicorn pins) + `ai_service/requirements-dev.txt` (httpx/pytest). No AI provider SDKs or keys are installed â€” Phase 9 is deterministic mocks only.
+- `AI_SERVICE_INTERNAL_TOKEN` must be set in `.env` (Compose fails fast without it; `.env.example` holds a placeholder). Compose service `ai-service` is internal-only â€” never add a `ports:` mapping to it.
 - Phase 9 acceptance: ai_service `pytest` (58) + backend `pytest` (223) green + `manage.py check` clean + `git diff --check` clean + HEAD still `b2e80ce` (never commit/stage/push; user's client commits).
 
 ### Phase 10 additions (2026-10-01, step 2 - architecture only)
@@ -123,15 +123,15 @@ docker compose --env-file .env -f infra/docker-compose.yml up -d --build
 
 ### Phase 10 additions (2026-10-01, step 3 - safety package)
 
-- Owner-approved interim scope (providers still deferred): `safety/rules.py` `RuleBasedSafety` is now the default `SafetyStage` in `default_stages()` — deterministic, offline, bilingual (en+bn), frozen 2-value taxonomy only (`PERSONAL_INFO_REQUEST` hard rule first, then `UNSAFE_TOPIC`); pre → `REDIRECTED`, post → `BLOCKED`. Extending the taxonomy = contract change = new owner decision record.
-- Canonical fixture set: `docs/testing/child-safety-fixtures.json` (62 cases, required risk-area minimums, versioned) + pass/fail history in `docs/testing/SAFETY-FIXTURE-RESULTS.md`. Gate: **100% categorization** (Section 31 levels 6/14) — enforced by `ai_service/tests/test_safety_fixtures.py`, which also proves pre-flagged input never reaches the LLM and flagged drafts never reach TTS.
+- Owner-approved interim scope (providers still deferred): `safety/rules.py` `RuleBasedSafety` is now the default `SafetyStage` in `default_stages()` â€” deterministic, offline, bilingual (en+bn), frozen 2-value taxonomy only (`PERSONAL_INFO_REQUEST` hard rule first, then `UNSAFE_TOPIC`); pre â†’ `REDIRECTED`, post â†’ `BLOCKED`. Extending the taxonomy = contract change = new owner decision record.
+- Canonical fixture set: `docs/testing/child-safety-fixtures.json` (62 cases, required risk-area minimums, versioned) + pass/fail history in `docs/testing/SAFETY-FIXTURE-RESULTS.md`. Gate: **100% categorization** (Section 31 levels 6/14) â€” enforced by `ai_service/tests/test_safety_fixtures.py`, which also proves pre-flagged input never reaches the LLM and flagged drafts never reach TTS.
 - ai_service suite: **206 tests** (88 step-2 baseline unchanged + 118 safety-package tests), all offline. Backend stays **223**.
 - Acceptance for this step: ai_service `pytest` (206) + backend `pytest` (223) green + `manage.py check` clean + `git diff --check` clean + nothing staged (never commit/stage/push; user's client commits).
 
 ### Controller API additions (2026-10-03)
 
 - Control-panel backend foundation (no UI, no Phase 11/AI-model work): semantic command gate on the existing `POST /api/v1/devices/{id}/command/` + new owner-scoped reads `GET /api/v1/devices/{id}/{state,events,sensors,configuration,summary}/` (full contract in `docs/api/endpoints.md`, decisions in `docs/backend/architecture.md` "Controller API").
-- ONE central semantic-action definition: `backend/core/semantic_actions.py` — frozen AI `Action` enum + `DANCE` (required by existing Phase 8 tests / Phase 17 quick actions). Case-insensitive membership, verbatim pass-through, enforced in `RobotCommandView` (shared `DeviceCommandSerializer` stays mechanical per Phase 8 decision 5). Extending the set = frozen-contract change = new owner decision record.
+- ONE central semantic-action definition: `backend/core/semantic_actions.py` â€” frozen AI `Action` enum + `DANCE` (required by existing Phase 8 tests / Phase 17 quick actions). Case-insensitive membership, verbatim pass-through, enforced in `RobotCommandView` (shared `DeviceCommandSerializer` stays mechanical per Phase 8 decision 5). Extending the set = frozen-contract change = new owner decision record.
 - Read policy: owner-scoped for everyone including admins (existing `RobotDetailView` rule; fleet identity stays on `GET /devices/`); admin commands audit-logged as `robot.commanded`. Configuration read-only with secret-key redaction; bounded lists `?limit=` 1..100 default 20; nulls = not reported (never fabricated).
 - Backend suite: **280 tests** (223 baseline unchanged + 57 new in `devices/tests/test_controller_api.py`), all green; ai_service stays **216**. Acceptance = backend `pytest` (280) + ai_service `pytest` (216) green + `manage.py check` clean + `git diff --check` clean + nothing staged (never commit/stage/push; user's client commits).
 
@@ -146,9 +146,9 @@ docker compose --env-file .env -f infra/docker-compose.yml up -d --build
 
 - UI-only redesign of the panel (owner-approved full brief): Django Templates + **Tailwind CSS v3** + existing Vanilla JS. **No** React/Vue/Svelte/Angular/Next/Vite/SPA, no new REST endpoints, no browser-MQTT, no auth/localStorage changes; backend code, API contracts, ownership and command semantics untouched (only `settings.py` gained `STATIC_ROOT` for collectstatic validation).
 - Build workflow (repo root, Node required):
-  - `npm install` � installs devDependency `tailwindcss@^3.4` only (`package.json`, `package-lock.json`, `node_modules/` git-ignored).
-  - `npm run build:css` � `frontend/styles/input.css` -> **`backend/static/css/app.css`** (minified, purged; commit this generated file, CI does not run npm).
-  - `npm run watch:css` � dev watch. Config: `tailwind.config.js` scans `backend/templates/**/*.html` + `backend/static/js/**/*.js`; design tokens (primary `#C41E3A`, dark palette) live there - do not hardcode duplicate crimson values in templates.
+  - `npm install` ï¿½ installs devDependency `tailwindcss@^3.4` only (`package.json`, `package-lock.json`, `node_modules/` git-ignored).
+  - `npm run build:css` ï¿½ `frontend/styles/input.css` -> **`backend/static/css/app.css`** (minified, purged; commit this generated file, CI does not run npm).
+  - `npm run watch:css` ï¿½ dev watch. Config: `tailwind.config.js` scans `backend/templates/**/*.html` + `backend/static/js/**/*.js`; design tokens (primary `#C41E3A`, dark palette) live there - do not hardcode duplicate crimson values in templates.
   - Handwritten CSS is limited to `frontend/styles/input.css` (`@tailwind` layers + small component layer: glass, buttons, off-canvas sidebar, skeletons, reduced-motion). Old `tokens.css`/`dashboard.css` were retired.
 - JS contract unchanged: `window.RobotAPI` (session cookie + `X-CSRFToken` meta, friendly errors, 401 redirect), 15s single-flight state polling paused on hidden tabs; only presentation copy changed ("Not available", relative last-seen) + time-of-day greeting (local time, no data).
 - Static: `collectstatic --noinput` validated (31 files -> git-ignored `backend/staticfiles/`); no static *hosting* added - `DJANGO_DEBUG=true` for local viewing, deployment phase owns production serving.
@@ -157,9 +157,18 @@ docker compose --env-file .env -f infra/docker-compose.yml up -d --build
 
 ### Phase 11 additions (2026-10-03)
 
-- Conversation-turn endpoint **`POST /api/v1/conversations/turn/`** (plus the no-trailing-slash alias for firmware) in `backend/conversations/`: `views.py` (dual caller — session or device Bearer JWT; auth 401 → id syntax 400 → ownership 404 → envelope 400; owner-scoped for every role, admins not elevated), `serializers.py` (text XOR audio, base64-checked, **unknown fields rejected, client `context` never accepted**), `permissions.py`, `urls.py`, `services.py` (server-assembled context; all per-turn persistence in `django_mongodb_backend.transaction.atomic()`; httpx call outside every transaction), `ai_client.py` (httpx + Bearer internal token + coarse failure reasons), `ai_contract.py` (backend-owned frozen Section 15 mirror: `validate_ai_input` / `validate_ai_output` — never imports `ai_service`).
+- Conversation-turn endpoint **`POST /api/v1/conversations/turn/`** (plus the no-trailing-slash alias for firmware) in `backend/conversations/`: `views.py` (dual caller â€” session or device Bearer JWT; auth 401 â†’ id syntax 400 â†’ ownership 404 â†’ envelope 400; owner-scoped for every role, admins not elevated), `serializers.py` (text XOR audio, base64-checked, **unknown fields rejected, client `context` never accepted**), `permissions.py`, `urls.py`, `services.py` (server-assembled context; all per-turn persistence in `django_mongodb_backend.transaction.atomic()`; httpx call outside every transaction), `ai_client.py` (httpx + Bearer internal token + coarse failure reasons), `ai_contract.py` (backend-owned frozen Section 15 mirror: `validate_ai_input` / `validate_ai_output` â€” never imports `ai_service`).
 - Wiring: `httpx==0.28.1` in `backend/requirements.txt`; `AI_SERVICE_URL`, `AI_SERVICE_INTERNAL_TOKEN` (empty default = call fails closed, no bypass), `AI_SERVICE_TIMEOUT_SECONDS` (30) in `backend/config/settings.py`, `.env.example`, and the `django` service env in `infra/docker-compose.yml`. `ai-service` stays unpublished and is deliberately **not** a `depends_on`.
-- Behavior: response is always the frozen 8-field Output Contract and always `200`; AI-service hard failure returns the Section 15.3 local fallback (`CONCERNED`/`IDLE`, `safety: null` = not evaluated) while still persisting the turn and marking `AIInteraction.safety_flags={"failed": true, "reason": timeout|unavailable|http_error|invalid_response|config}` (no retry loop); `SafetyEvent` only when flagged, linked to the **child** message, severity derived `BLOCKED`→high / `REDIRECTED`→medium / `ALLOWED_WITH_CAUTION`,`ALLOWED`→low; `Memory` rows from `memory_writes` (oversized keys skipped, turn never fails); raw child audio forwarded once and never stored (`audio_reference` stays blank until Phase 12).
-- Tests: backend **364** (306 baseline + 58 new in `conversations/tests/`), ai_service stays **216**. AI calls in tests are fully offline (`httpx.MockTransport` for the client; `conversations.services.call_ai_turn` monkeypatched for the view) — no network, no provider, AI HOLD respected.
-- Docs: `docs/api/endpoints.md` gained the Phase 11 reference; `docs/backend/architecture.md` gained the Phase 11 addendum (decisions 1–7 + out-of-scope, incl. **conversation rate limiting still open**).
+- Behavior: response is always the frozen 8-field Output Contract and always `200`; AI-service hard failure returns the Section 15.3 local fallback (`CONCERNED`/`IDLE`, `safety: null` = not evaluated) while still persisting the turn and marking `AIInteraction.safety_flags={"failed": true, "reason": timeout|unavailable|http_error|invalid_response|config}` (no retry loop); `SafetyEvent` only when flagged, linked to the **child** message, severity derived `BLOCKED`â†’high / `REDIRECTED`â†’medium / `ALLOWED_WITH_CAUTION`,`ALLOWED`â†’low; `Memory` rows from `memory_writes` (oversized keys skipped, turn never fails); raw child audio forwarded once and never stored (`audio_reference` stays blank until Phase 12).
+- Tests: backend **364** (306 baseline + 58 new in `conversations/tests/`), ai_service stays **216**. AI calls in tests are fully offline (`httpx.MockTransport` for the client; `conversations.services.call_ai_turn` monkeypatched for the view) â€” no network, no provider, AI HOLD respected.
+- Docs: `docs/api/endpoints.md` gained the Phase 11 reference; `docs/backend/architecture.md` gained the Phase 11 addendum (decisions 1â€“7 + out-of-scope, incl. **conversation rate limiting still open**).
 - Acceptance = backend `pytest` (364) + ai_service `pytest` (216) green + `manage.py check` clean + `git diff --check` clean + nothing staged (never commit/stage/push; user's client commits).
+### Firmware / real-mode UI additions (2026-10-08)
+
+- **Part 1 firmware implemented** as `firmware/` (ESP-IDF project, C): identity (NVS UUIDv4 + ECDSA P-256, challenge signing), backend registration/challenge/token client, Mosquitto client (LWT, exact four subscriptions, JWT-as-password), telemetry (status/heartbeat/lifecycle events), semantic-action whitelist with joint limits. TLS on by default in Kconfig; lab opt-out flags are explicit; pairing code printed once on serial. No AI-provider secrets; firmware receives semantic actions only.
+- Docs: `docs/firmware/esp32-mqtt-integration.md` (architecture, contracts, provisioning, compose dev flow, troubleshooting, PASS vs NOT TESTED status table).
+- **Controller real-vs-mock switch**: `controller.html` now declares `data-service-mode="real"`; `controller.js` reads live APIs by default, reports command failure truthfully ("could not be sent", no fake queued copy in real mode), disables buttons in-flight; mock assets remain shipped for local preview.
+- Tests: backend **426 collected (425 passed, 1 skipped)** = 384 baseline + 42 new (5 acceptance-path in `mqtt_bridge/tests/test_acceptance_path.py` + 12 real-integration/static in `devices/tests/test_real_integration.py` + 25 firmware source contract in `mqtt_bridge/tests/test_firmware_contract.py`); the single skip is `test_firmware_builds_with_espidf` (`idf.py` toolchain absent). ai_service stays **216**. Live Mosquitto + Mongo required (compose).
+- Integration review fixes (2026-10-08): credential-log scanner is now **statement-level** (wraps ESP_LOG/printf calls to their terminating `;`, closing the multi-line blind spot) + new `test_pairing_code_is_printed_exactly_once`; `controller.js` offline warning only for `online === false` (never-reported must not claim "offline"); removed the hardcoded fake uptime trend polyline from `controller.html` (mock values stay in the mock service); restored `docs/firmware/esp32-mqtt-integration.md` (was missing).
+- NOT TESTED by design in this environment: `idf.py` build, physical ESP32 flash/servo motion.
+- Acceptance = backend `pytest` (425 passed, 1 skipped) + ai_service `pytest` (216) green + `manage.py check` clean + `collectstatic --noinput` OK + `npm run build:css` OK + `git diff --check` clean + nothing staged (never commit/stage/push; user's client commits).

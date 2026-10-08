@@ -1,0 +1,60 @@
+menu "RoboPanel Robot"
+
+    config ROBOT_WIFI_SSID
+        string "Wi-Fi SSID (station mode)"
+        default ""
+
+    config ROBOT_WIFI_PASSWORD
+        string "Wi-Fi password (local sdkconfig only - never commit a real value)"
+        default ""
+
+    config ROBOT_BACKEND_HOST
+        string "Backend host (Django)"
+        default "192.168.1.100"
+
+    config ROBOT_BACKEND_HTTP_PORT
+        int "Backend port"
+        range 1 65535
+        default 8000
+
+    config ROBOT_BACKEND_USE_TLS
+        bool "Use HTTPS for the backend (required outside the lab)"
+        default y
+
+    config ROBOT_BACKEND_CA_PEM
+        string "Backend root CA as single-line PEM (required while HTTPS is on)"
+        default ""
+
+    config ROBOT_MQTT_HOST
+        string "MQTT broker host (Mosquitto)"
+        default "192.168.1.100"
+
+    config ROBOT_MQTT_PORT
+        int "MQTT broker port"
+        range 1 65535
+        default 1883
+
+    config ROBOT_MQTT_USE_TLS
+        bool "Use TLS for MQTT (required outside the lab)"
+        default y
+
+    config ROBOT_MQTT_CA_PEM
+        string "Broker root CA as single-line PEM (required while TLS is on)"
+        default ""
+
+    config ROBOT_MQTT_KEEPALIVE_S
+        int "MQTT keepalive seconds"
+        range 15 300
+        default 30
+
+    config ROBOT_HEARTBEAT_INTERVAL_S
+        int "Heartbeat interval seconds"
+        range 5 300
+        default 30
+
+    config ROBOT_STATUS_INTERVAL_S
+        int "Status interval seconds"
+        range 10 3600
+        default 60
+
+endmenu

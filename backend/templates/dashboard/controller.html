@@ -8,7 +8,7 @@
   <div class="flex min-w-0 flex-1 flex-col">
     {% include "dashboard/partials/header.html" %}
 
-    <main class="mx-auto w-full max-w-7xl flex-1 px-5 py-7 lg:px-8" data-robot-id="{{ robot_id }}">
+    <main class="mx-auto w-full max-w-7xl flex-1 px-5 py-7 lg:px-8" data-robot-id="{{ robot_id }}" data-service-mode="real">
       <!-- Breadcrumb + page title + robot identity -->
       <p class="mb-5 text-sm">
         <a href="{% url 'dashboard' %}" class="inline-flex items-center gap-2 text-muted no-underline transition-colors hover:text-body"><span aria-hidden="true">&larr;</span> Back to Dashboard</a>
@@ -103,12 +103,7 @@
                   <span class="text-xs font-semibold uppercase tracking-[0.15em] text-faint">Uptime</span>
                 </div>
                 <p id="state-uptime" class="m-0 text-2xl font-bold tracking-tight">&mdash;</p>
-                <div class="flex items-center gap-2">
-                  <p id="state-uptime-sub" class="m-0 text-xs text-faint">Not reported by robot yet</p>
-                  <svg viewBox="0 0 100 24" preserveAspectRatio="none" class="h-4 w-14" aria-hidden="true">
-                    <polyline points="0,16 14,14 28,17 42,11 56,13 70,8 84,10 100,6" fill="none" class="stroke-ok" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" vector-effect="non-scaling-stroke"/>
-                  </svg>
-                </div>
+                <p id="state-uptime-sub" class="m-0 text-xs text-faint">Not reported by robot yet</p>
               </div>
             </div>
             <div id="state-error" hidden class="col-span-full state-error glass p-6">

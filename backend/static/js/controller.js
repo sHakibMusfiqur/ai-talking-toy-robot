@@ -2,15 +2,47 @@
   "use strict";
 
   var main = document.querySelector("main[data-robot-id]");
-  if (!main || !window.RobotMockService || !window.RobotCommandService) return;
+  if (!main) return;
 
   var ROBOT_ID = main.getAttribute("data-robot-id");
-  var API = window.RobotMockService;
-  var POLL_MS = 15000;
+  var SERVICE_MODE = main.getAttribute("data-service-mode") || "";
+  var IS_MOCK = SERVICE_MODE === "mock";
 
   function $(elementId) {
     return document.getElementById(elementId);
   }
+
+  function failServiceUnavailable() {
+    var message =
+      "Live robot data is unavailable. Please reload the page.";
+    ["state", "events", "sensors", "config"].forEach(function (name) {
+      var block = $(name + "-block");
+      if (block) block.setAttribute("data-state", "error");
+      ["loading", "values", "list", "empty"].forEach(function (view) {
+        var element = $(name + "-" + view);
+        if (element) element.hidden = true;
+      });
+      var errorView = $(name + "-error");
+      if (errorView) errorView.hidden = false;
+      var errorText = $(name + "-error-text");
+      if (errorText) errorText.textContent = message;
+    });
+    var status = $("command-status");
+    if (status) status.textContent = message;
+    document.querySelectorAll("[data-action]").forEach(function (button) {
+      button.disabled = true;
+    });
+  }
+
+  if (IS_MOCK) {
+    if (!window.RobotMockService || !window.RobotCommandService) return;
+  } else if (!window.RobotAPI) {
+    failServiceUnavailable();
+    return;
+  }
+
+  var API = IS_MOCK ? window.RobotMockService : window.RobotAPI;
+  var POLL_MS = 15000;
 
   function showView(viewMap, activeKey) {
     Object.keys(viewMap).forEach(function (key) {
@@ -172,7 +204,9 @@
     $("state-battery").textContent = formatNumber(data.battery_percent, "%");
     $("state-rssi").textContent = formatNumber(data.rssi, " dBm");
     $("state-last-seen").textContent = formatRelative(data.last_seen);
-    $("offline-hint").hidden = online;
+    /* Offline warning only for a robot that actually reported offline —
+       never-reported (online null/undefined) must not claim "offline". */
+    $("offline-hint").hidden = data.online !== false;
 
     var uptime = $("state-uptime");
     if (uptime) uptime.textContent = data.uptime || "Not available";
@@ -520,6 +554,21 @@
     });
   }
 
+  function finishCommandSuccess(button) {
+    commandInFlight = false;
+    setCommandsDisabled(false);
+    button.classList.remove("is-busy");
+    button.classList.add("is-ok");
+    refreshEventsQuietly();
+    quietStateRefresh();
+  }
+
+  function finishCommandFailure(button) {
+    commandInFlight = false;
+    setCommandsDisabled(false);
+    button.classList.remove("is-busy");
+  }
+
   function sendCommand(button) {
     if (commandInFlight) return;
     commandInFlight = true;
@@ -527,32 +576,49 @@
     clearCommandStates();
     button.classList.add("is-busy");
     var label = button.textContent.trim();
-    setCommandStatus("Queuing " + label + "…", null);
-    window.RobotCommandService.sendRobotCommand(
-      button.getAttribute("data-action")
-    ).then(
+    var action = button.getAttribute("data-action");
+
+    if (IS_MOCK) {
+      setCommandStatus("Queuing " + label + "…", null);
+      window.RobotCommandService.sendRobotCommand(action).then(
+        function () {
+          finishCommandSuccess(button);
+          setCommandStatus(label + " queued.", "is-ok");
+          if (window.RoboToast) {
+            window.RoboToast.show(
+              "Command " + label.toUpperCase() + " queued",
+              "success"
+            );
+          }
+        },
+        function (error) {
+          finishCommandFailure(button);
+          setCommandStatus(errorMessage(error), "is-error");
+          if (window.RoboToast) {
+            window.RoboToast.show(errorMessage(error), "error");
+          }
+        }
+      );
+      return;
+    }
+
+    setCommandStatus("Sending " + label + "…", null);
+    API.sendCommand(ROBOT_ID, action).then(
       function () {
-        commandInFlight = false;
-        setCommandsDisabled(false);
-        button.classList.remove("is-busy");
-        button.classList.add("is-ok");
-        setCommandStatus(label + " queued.", "is-ok");
+        finishCommandSuccess(button);
+        setCommandStatus(label + " sent.", "is-ok");
         if (window.RoboToast) {
           window.RoboToast.show(
-            "Command " + label.toUpperCase() + " queued",
+            "Command " + label.toUpperCase() + " sent",
             "success"
           );
         }
-        refreshEventsQuietly();
-        quietStateRefresh();
       },
-      function (error) {
-        commandInFlight = false;
-        setCommandsDisabled(false);
-        button.classList.remove("is-busy");
-        setCommandStatus(errorMessage(error), "is-error");
+      function () {
+        finishCommandFailure(button);
+        setCommandStatus(label + " could not be sent.", "is-error");
         if (window.RoboToast) {
-          window.RoboToast.show(errorMessage(error), "error");
+          window.RoboToast.show("Command could not be sent", "error");
         }
       }
     );

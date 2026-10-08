@@ -1,0 +1,7 @@
+# ESP-IDF local build artifacts (tracked file list must stay secret-free).
+build/
+sdkconfig
+sdkconfig.old
+sdkconfig.local
+dependencies.lock
+managed_components/

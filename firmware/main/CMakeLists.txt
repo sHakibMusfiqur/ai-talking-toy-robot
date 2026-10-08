@@ -1,0 +1,23 @@
+idf_component_register(
+    SRCS
+        "app_main.c"
+        "identity.c"
+        "wifi.c"
+        "backend_client.c"
+        "robot_mqtt.c"
+        "telemetry.c"
+        "actions.c"
+    INCLUDE_DIRS "."
+    REQUIRES
+        mbedtls
+        nvs_flash
+        esp_wifi
+        esp_event
+        esp_netif
+        esp_timer
+        mqtt
+        esp_http_client
+        json
+        app_update
+        esp_system
+)
