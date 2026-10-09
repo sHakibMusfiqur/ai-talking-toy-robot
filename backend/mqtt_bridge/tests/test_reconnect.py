@@ -109,11 +109,23 @@ def test_bridge_survives_full_broker_restart(bridge, make_device):
     assert wait_until(
         lambda: _tcp_up(settings.MQTT_HOST, settings.MQTT_PORT), timeout=45
     ), "broker did not come back after restart"
-    # The old device client died with the broker; reconnect it.
+    # The old device client died with the broker; reconnect it. mosquitto
+    # accepts TCP before the entrypoint finishes re-running the dynsec
+    # bootstrap, and concurrent control-topic sessions can cross responses,
+    # so wait until provisioning actually succeeds.
     from .helpers import MqttTestClient
     from mqtt_bridge.provisioning import ensure_device_client
 
-    ensure_device_client(device.device_id, "device-jwt-test")
+    def _provision_ok():
+        try:
+            ensure_device_client(device.device_id, "device-jwt-test")
+            return True
+        except Exception:
+            return False
+
+    assert wait_until(_provision_ok, timeout=30), (
+        "device client could not be provisioned after broker restart"
+    )
     device2 = MqttTestClient(username=device.device_id, password="device-jwt-test")
     device2.connect()
     # Bridge re-authenticates and re-subscribes within bounded backoff —
