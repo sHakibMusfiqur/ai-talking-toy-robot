@@ -34,6 +34,9 @@ htmlcov/
 db.sqlite3
 staticfiles/
 
+# Robot simulator local identity (contains a locally generated private key)
+sim_state/
+
 # MongoDB local data (if ever bind-mounted into the repo)
 mongo_data/
 infra/mongo-data/
