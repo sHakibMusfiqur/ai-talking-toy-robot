@@ -62,6 +62,7 @@ class MqttConnection:
         self._connected = threading.Event()
         self._connect_error = None
         self._lock = threading.Lock()
+        self._failed = False
 
     def _on_connect(self, client, userdata, flags, reason_code, properties):
         if reason_code.is_failure:
@@ -121,19 +122,66 @@ class MqttConnection:
         return self
 
     def publish(self, topic, payload, *, qos, retain=False, timeout=None):
+        """Publish one message and wait for the broker ack (QoS 1).
+
+        Fail-safe contract (Phase A, F-08): the connection is poisoned on
+        ANY transport failure (not-connected, send rejected, ack timeout)
+        and raises MqttError. Poisoning tears the connection down
+        completely (network loop stopped) — paho queues QoS>0 messages and
+        would re-deliver them after an auto-reconnect, which would break
+        the HTTP request/response boundary (the caller only ever returns
+        503 for messages that were demonstrably not handed to a healthy
+        broker session). Callers must discard a poisoned connection and
+        create a fresh one (get_publisher does this automatically)."""
+        if self._failed:
+            raise MqttError("mqtt connection poisoned after previous failure")
+        if not self._client.is_connected():
+            # Fail fast before paho can enqueue the message: enqueueing on a
+            # dead connection leaves a QoS 1 copy that auto-reconnect would
+            # deliver later (F-08).
+            raise MqttError("mqtt not connected")
         timeout = timeout if timeout is not None else settings.MQTT_PUBLISH_TIMEOUT_SECONDS
-        info = self._client.publish(topic, payload, qos=qos, retain=retain)
+        try:
+            info = self._client.publish(topic, payload, qos=qos, retain=retain)
+        except RuntimeError as exc:
+            self._poison()
+            raise MqttError(f"mqtt publish raised: {exc}") from exc
         if info.rc != mqtt.MQTT_ERR_SUCCESS:
+            # paho may have enqueued the message despite the failure —
+            # poison so the queued copy can never be re-sent.
+            self._poison()
             raise MqttError(f"mqtt publish not accepted (rc={info.rc})")
         try:
             info.wait_for_publish(timeout=timeout)
         except RuntimeError as exc:
+            self._poison()
             raise MqttError(f"mqtt publish not acknowledged: {exc}") from exc
         if not info.is_published():
+            self._poison()
             raise MqttError("mqtt publish not acknowledged")
+
+    def _poison(self):
+        """Mark this connection unusable and stop its network loop so a
+        queued QoS 1 message can never be re-sent by an auto-reconnect
+        (F-08). Teardown errors are swallowed — the connection is already
+        failed and will be discarded."""
+        self._failed = True
+        try:
+            self._client.disconnect()
+        except Exception:  # noqa: BLE001 - teardown must never raise
+            pass
+        try:
+            self._client.loop_stop()
+        except Exception:  # noqa: BLE001 - teardown must never raise
+            pass
+        self._connected.clear()
 
     def is_connected(self):
         return self._client.is_connected()
+
+    def is_usable(self):
+        """True when this connection may still be used for publishes."""
+        return not self._failed and self._client.is_connected()
 
     def simulate_network_drop(self):
         """Abrupt socket close without MQTT DISCONNECT (test hook for

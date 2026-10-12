@@ -42,3 +42,12 @@ class RobotCommandUnavailable(APIException):
     status_code = status.HTTP_503_SERVICE_UNAVAILABLE
     default_detail = "Robot command service unavailable."
     default_code = "robot_command_unavailable"
+
+
+class RobotCommandThrottled(APIException):
+    """Duplicate-command suppression (Phase A): the same authenticated user
+    repeated a command for the same robot inside the cooldown window."""
+
+    status_code = status.HTTP_429_TOO_MANY_REQUESTS
+    default_detail = "Command repeated too quickly."
+    default_code = "robot_command_throttled"

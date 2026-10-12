@@ -9,7 +9,11 @@ from .helpers import wait_until
 
 
 def _robot():
-    return Robot.objects.create(device_id=str(uuid.uuid4()))
+    # Ingestion is pairing-gated (Phase A / F-02): LWT/status flow requires
+    # a paired robot.
+    return Robot.objects.create(
+        device_id=str(uuid.uuid4()), pairing_status=Robot.PAIRING_PAIRED
+    )
 
 
 @pytest.mark.django_db(transaction=True)

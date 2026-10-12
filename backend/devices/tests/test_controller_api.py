@@ -176,6 +176,254 @@ def test_parent_command_is_not_audit_logged(api_client, parent, recorder):
     assert not AuditLog.objects.filter(action="robot.commanded").exists()
 
 
+# --- Command: duplicate-command suppression (Phase A, F-10) ----------------
+
+
+@pytest.fixture(autouse=True)
+def clear_command_cooldowns():
+    from devices.views import _command_cooldowns
+
+    _command_cooldowns.clear()
+    yield
+    _command_cooldowns.clear()
+
+
+def test_repeat_command_within_cooldown_is_429(api_client, parent, recorder):
+    robot = _robot(parent)
+    first = api_client.post(command_url(robot), {"action": "wave"}, format="json")
+    assert first.status_code == 200, first.content
+    second = api_client.post(command_url(robot), {"action": "wave"}, format="json")
+    assert second.status_code == 429
+    assert second.json() == {"detail": "Command repeated too quickly."}
+    # The throttled attempt never reached the publisher.
+    assert len(recorder) == 1
+
+
+def test_cooldown_is_keyed_per_robot(api_client, parent, recorder):
+    robot_a = _robot(parent)
+    robot_b = _robot(parent)
+    first = api_client.post(command_url(robot_a), {"action": "wave"}, format="json")
+    assert first.status_code == 200, first.content
+    # Same user, different robot: not a duplicate.
+    second = api_client.post(command_url(robot_b), {"action": "wave"}, format="json")
+    assert second.status_code == 200, second.content
+    assert len(recorder) == 2
+
+
+def test_cooldown_is_keyed_per_user(api_client, parent, recorder):
+    robot = _robot(parent)
+    first = api_client.post(command_url(robot), {"action": "wave"}, format="json")
+    assert first.status_code == 200, first.content
+    # Different user (admin may command any robot): not a duplicate.
+    admin_client = APIClient()
+    setup_admin(admin_client, "cooldown-admin@example.com")
+    second = admin_client.post(command_url(robot), {"action": "wave"}, format="json")
+    assert second.status_code == 200, second.content
+    assert len(recorder) == 2
+
+
+def test_cooldown_expires_after_window(api_client, parent, recorder, settings):
+    import time as _time
+
+    settings.ROBOT_COMMAND_COOLDOWN_SECONDS = 0.15
+    robot = _robot(parent)
+    first = api_client.post(command_url(robot), {"action": "wave"}, format="json")
+    assert first.status_code == 200, first.content
+    _time.sleep(0.2)
+    second = api_client.post(command_url(robot), {"action": "wave"}, format="json")
+    assert second.status_code == 200, second.content
+    assert len(recorder) == 2
+
+
+def test_failed_publish_does_not_start_cooldown(api_client, parent, monkeypatch):
+    # A 503 must not lock the user out of retrying: the cooldown is
+    # recorded only after a successful publish.
+    from mqtt_bridge.client import MqttError
+
+    from devices import views
+
+    def _explode(robot, payload):
+        raise MqttError("broker unreachable")
+
+    monkeypatch.setattr(views, "publish_command", _explode)
+    robot = _robot(parent)
+    first = api_client.post(command_url(robot), {"action": "wave"}, format="json")
+    assert first.status_code == 503
+
+    calls = []
+
+    def _record(robot, payload):
+        calls.append((robot, payload))
+
+    monkeypatch.setattr(views, "publish_command", _record)
+    second = api_client.post(command_url(robot), {"action": "wave"}, format="json")
+    assert second.status_code == 200, second.content
+    assert len(calls) == 1
+
+
+def test_cooldown_disabled_when_zero(api_client, parent, recorder, settings):
+    settings.ROBOT_COMMAND_COOLDOWN_SECONDS = 0
+    robot = _robot(parent)
+    first = api_client.post(command_url(robot), {"action": "wave"}, format="json")
+    assert first.status_code == 200, first.content
+    second = api_client.post(command_url(robot), {"action": "wave"}, format="json")
+    assert second.status_code == 200, second.content
+    assert len(recorder) == 2
+
+
+def test_rejected_body_does_not_start_cooldown(api_client, parent, recorder):
+    robot = _robot(parent)
+    bad = api_client.post(command_url(robot), {"action": "servo"}, format="json")
+    assert bad.status_code == 400
+    # A valid command right after a rejected body is not throttled.
+    good = api_client.post(command_url(robot), {"action": "wave"}, format="json")
+    assert good.status_code == 200, good.content
+    assert len(recorder) == 1
+
+
+@pytest.mark.django_db(transaction=True)
+def test_concurrent_duplicate_commands_publish_exactly_once(parent, monkeypatch):
+    """Simultaneous command requests for the same robot must produce exactly
+    one publish and one 200; the rest are 429. The patched publish blocks on
+    a barrier so that on non-atomic check-then-act code every thread would
+    pass the empty cooldown check, enter publish together, trip the barrier,
+    and all return 200. With atomic reserve-before-publish only one thread
+    reaches publish; the barrier times out, breaks, and the single publisher
+    tolerates the broken barrier."""
+    import threading
+
+    from django.db import connections
+
+    from devices import views
+
+    parties = 4
+    robot = _robot(parent)
+    publish_calls = []
+    publish_barrier = threading.Barrier(parties)
+    start_barrier = threading.Barrier(parties)
+
+    def _blocking_publish(robot, payload):
+        publish_calls.append(payload)
+        try:
+            publish_barrier.wait(timeout=1.0)
+        except threading.BrokenBarrierError:
+            pass
+
+    monkeypatch.setattr(views, "publish_command", _blocking_publish)
+
+    responses = [None] * parties
+
+    def _worker(index):
+        try:
+            client = APIClient()
+            client.force_authenticate(user=parent.user)
+            start_barrier.wait(timeout=10.0)
+            responses[index] = client.post(
+                command_url(robot), {"action": "wave"}, format="json"
+            )
+        finally:
+            connections.close_all()
+
+    threads = [
+        threading.Thread(target=_worker, args=(i,)) for i in range(parties)
+    ]
+    for thread in threads:
+        thread.start()
+    for thread in threads:
+        thread.join(timeout=30.0)
+        assert not thread.is_alive()
+
+    assert all(response is not None for response in responses)
+    codes = sorted(response.status_code for response in responses)
+    assert codes == [200, 429, 429, 429]
+    for response in responses:
+        if response.status_code == 429:
+            assert response.json() == {"detail": "Command repeated too quickly."}
+    # The throttled requests never reached the publisher.
+    assert len(publish_calls) == 1
+
+
+@pytest.mark.django_db(transaction=True)
+def test_slow_failing_publish_cannot_release_newer_reservation(
+    parent, monkeypatch
+):
+    """Reservation A outlives its cooldown window while its publish is still
+    in flight; B then reserves the expired slot. When A finally fails, A's
+    release must remove only A's own reservation token - B's newer
+    reservation stays, so a third request is still throttled. An
+    unconditional pop would delete B's entry and let the third command
+    through. Deterministic: A's publish blocks on events controlled by the
+    test, not on timing."""
+    import threading
+    import time as _time
+
+    from django.db import connections
+    from django.test import override_settings
+
+    from devices import views
+    from mqtt_bridge.client import MqttError
+
+    robot = _robot(parent)
+    publish_calls = []
+    a_entered = threading.Event()
+    a_resume = threading.Event()
+
+    def _gated_publish(robot, payload):
+        publish_calls.append(payload)
+        if len(publish_calls) == 1:  # request A: slow, then fails
+            a_entered.set()
+            assert a_resume.wait(timeout=10.0)
+            raise MqttError("publish failed after its window expired")
+        # request B succeeds immediately.
+
+    monkeypatch.setattr(views, "publish_command", _gated_publish)
+
+    def _post_as_parent():
+        client = APIClient()
+        client.force_authenticate(user=parent.user)
+        return client.post(command_url(robot), {"action": "wave"}, format="json")
+
+    a_response = [None]
+
+    def _worker_a():
+        try:
+            client = APIClient()
+            client.force_authenticate(user=parent.user)
+            a_response[0] = client.post(
+                command_url(robot), {"action": "wave"}, format="json"
+            )
+        finally:
+            connections.close_all()
+
+    with override_settings(ROBOT_COMMAND_COOLDOWN_SECONDS=0.15):
+        thread = threading.Thread(target=_worker_a)
+        thread.start()
+        assert a_entered.wait(timeout=10.0)
+        # A's reservation is now past its 0.15s window while A still holds
+        # the publish slot open.
+        _time.sleep(0.25)
+
+        # B reserves the expired slot and publishes successfully.
+        b = _post_as_parent()
+        assert b.status_code == 200, b.content
+
+        # Let A fail; its release must not touch B's newer reservation.
+        a_resume.set()
+        thread.join(timeout=10.0)
+        assert not thread.is_alive()
+        assert a_response[0] is not None
+        assert a_response[0].status_code == 503
+
+        # B's reservation is intact: a third request is still throttled and
+        # never reaches the publisher.
+        c = _post_as_parent()
+        assert c.status_code == 429
+        assert c.json() == {"detail": "Command repeated too quickly."}
+
+    # A and B published; C never did.
+    assert len(publish_calls) == 2
+
+
 # --- Reads: state ----------------------------------------------------------
 
 

@@ -183,11 +183,35 @@ MQTT_PUBLISH_TIMEOUT_SECONDS = float(
     os.environ.get("MQTT_PUBLISH_TIMEOUT_SECONDS", "5")
 )
 
+# Duplicate-command suppression (Phase A): per (authenticated user, robot)
+# cooldown on POST /api/v1/devices/<pk>/command/. In-memory and therefore
+# per-process (a multi-worker deployment would need a shared store; today
+# the backend runs a single process). 0 disables the check.
+ROBOT_COMMAND_COOLDOWN_SECONDS = float(
+    os.environ.get("ROBOT_COMMAND_COOLDOWN_SECONDS", "1")
+)
+
 
 AI_SERVICE_URL = os.environ.get("AI_SERVICE_URL", "http://ai-service:8000")
 AI_SERVICE_INTERNAL_TOKEN = os.environ.get("AI_SERVICE_INTERNAL_TOKEN", "")
 AI_SERVICE_TIMEOUT_SECONDS = float(
     os.environ.get("AI_SERVICE_TIMEOUT_SECONDS", "30")
+)
+
+# Conversation-turn payload bounds (Phase A, F-09): the child-facing turn
+# endpoint accepts either a short text turn or one base64 audio clip.
+# ~1 MB of decoded audio ≈ 1.4 M base64 characters; text turns are child
+# chat, not documents. DATA_UPLOAD_MAX_MEMORY_SIZE is a hard backstop on
+# the whole request body (Django default is 2.5 MB; 5 MB leaves room for
+# the JSON envelope around a max-size audio field without rejecting it).
+CONVERSATION_MAX_TEXT_LENGTH = int(
+    os.environ.get("CONVERSATION_MAX_TEXT_LENGTH", "4000")
+)
+CONVERSATION_MAX_AUDIO_BASE64_LENGTH = int(
+    os.environ.get("CONVERSATION_MAX_AUDIO_BASE64_LENGTH", "1400000")
+)
+DATA_UPLOAD_MAX_MEMORY_SIZE = int(
+    os.environ.get("DATA_UPLOAD_MAX_MEMORY_SIZE", str(5 * 1024 * 1024))
 )
 
 # LOCAL UI TESTING ONLY (never enable in production): an explicit,

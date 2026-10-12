@@ -2,6 +2,7 @@ import base64
 import binascii
 
 from bson import ObjectId
+from django.conf import settings
 from rest_framework import serializers
 
 from .ai_contract import LANGUAGE_HINTS, MODES
@@ -43,9 +44,16 @@ class ConversationTurnSerializer(serializers.Serializer):
     robot_id = ObjectIdField()
     child_profile_id = ObjectIdField()
     conversation_id = ObjectIdField(required=False)
-    text = serializers.CharField(required=False, allow_blank=False)
+    text = serializers.CharField(
+        required=False,
+        allow_blank=False,
+        max_length=settings.CONVERSATION_MAX_TEXT_LENGTH,
+    )
     audio = serializers.CharField(
-        required=False, allow_blank=False, trim_whitespace=False
+        required=False,
+        allow_blank=False,
+        trim_whitespace=False,
+        max_length=settings.CONVERSATION_MAX_AUDIO_BASE64_LENGTH,
     )
     language_hint = serializers.ChoiceField(
         choices=sorted(LANGUAGE_HINTS), required=False, allow_null=True

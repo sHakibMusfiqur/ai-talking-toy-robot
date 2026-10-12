@@ -1,4 +1,5 @@
 from bson import ObjectId
+from django.conf import settings
 from django.contrib.auth.decorators import login_required
 from django.http import Http404
 from django.shortcuts import render
@@ -17,7 +18,7 @@ from mqtt_bridge.payloads import DeviceCommandSerializer
 from mqtt_bridge.publisher import publish_command
 
 from .authentication import DeviceJWTAuthentication
-from .exceptions import RobotCommandUnavailable
+from .exceptions import RobotCommandThrottled, RobotCommandUnavailable
 from .models import Robot, RobotState
 from .permissions import DeviceAuthenticated
 from .serializers import (
@@ -38,6 +39,70 @@ from .services import (
     pair_robot,
     register_device,
 )
+
+import itertools
+import threading
+import time as _time
+
+
+_command_cooldowns: dict = {}  # (user_pk, robot_pk) -> (monotonic_ts, token)
+# Guards _command_cooldowns only, for the microsecond check+reserve and
+# release critical sections - never while MQTT publishing is in flight
+# (Phase A concurrency fix: non-atomic check-then-act allowed concurrent
+# duplicate publishes within the cooldown window).
+_command_cooldown_lock = threading.Lock()
+_reservation_tokens = itertools.count(1)
+# Returned by _reserve_command_slot when suppression is disabled: publish
+# proceeds and no reservation is stored (release is a no-op for it).
+_COOLDOWN_DISABLED = object()
+
+
+def _reserve_command_slot(user, robot):
+    """Atomically check the cooldown and reserve the next publish slot.
+
+    Returns a unique reservation token when the caller may publish (a fresh
+    reservation was taken), None when the (user, robot) pair is still
+    inside its window (throttled), or _COOLDOWN_DISABLED when suppression is
+    off. Reserving BEFORE publishing makes concurrent requests serialise on
+    the reservation instead of both passing a non-atomic check-then-act
+    pair; a failed publish must call _release_command_slot with this token
+    so retries remain possible WITHOUT deleting a newer reservation that
+    replaced an expired one."""
+    window = settings.ROBOT_COMMAND_COOLDOWN_SECONDS
+    if window <= 0:
+        return _COOLDOWN_DISABLED
+    key = (user.pk, str(robot.pk))
+    now = _time.monotonic()
+    with _command_cooldown_lock:
+        entry = _command_cooldowns.get(key)
+        if entry is not None and (now - entry[0]) < window:
+            return None
+        token = next(_reservation_tokens)
+        _command_cooldowns[key] = (now, token)
+        if len(_command_cooldowns) > 1000:
+            expired = [
+                stale
+                for stale, (ts, _tok) in _command_cooldowns.items()
+                if now - ts >= window
+            ]
+            for stale in expired:
+                _command_cooldowns.pop(stale, None)
+        return token
+
+
+def _release_command_slot(user, robot, token) -> None:
+    """Drop a reservation taken by _reserve_command_slot (publish failed,
+    so the user must be able to retry immediately). Only the reservation
+    holding this exact token is removed: if the entry expired and a newer
+    request reserved the slot in the meantime, the newer reservation is
+    left untouched (an unconditional pop would let a slow failing publish
+    release someone else's newer reservation)."""
+    if token is None or token is _COOLDOWN_DISABLED:
+        return
+    with _command_cooldown_lock:
+        entry = _command_cooldowns.get((user.pk, str(robot.pk)))
+        if entry is not None and entry[1] == token:
+            _command_cooldowns.pop((user.pk, str(robot.pk)), None)
 
 
 def _client_ip(request):
@@ -310,9 +375,23 @@ class RobotCommandView(APIView):
         serializer = DeviceCommandSerializer(data=request.data)
         serializer.is_valid(raise_exception=True)
         validate_semantic_action(serializer.validated_data["action"])
+
+        # Duplicate-command suppression (Phase A): ownership and body are
+        # already validated, so this never leaks robot existence. Check +
+        # reserve is atomic per (user, robot) so concurrent requests cannot
+        # both publish within the window; the lock is released before MQTT
+        # I/O. A failed publish releases only its own reservation token (a
+        # 503 must not lock the user out of retrying, and a slow failing
+        # publish must never delete a newer reservation that replaced an
+        # expired entry).
+        token = _reserve_command_slot(request.user, robot)
+        if token is None:
+            raise RobotCommandThrottled()
+
         try:
             publish_command(robot, serializer.validated_data)
         except MqttError:
+            _release_command_slot(request.user, robot, token)
             raise RobotCommandUnavailable()
         if request.user.role == "admin":
             audit_robot_command(

@@ -299,6 +299,54 @@ def test_missing_and_malformed_ids_are_field_keyed_400(world, ai):
     assert ai.calls == []
 
 
+# --- payload bounds (Phase A, F-09) ----------------------------------------
+
+
+def test_oversized_text_turn_is_rejected_400(world, ai, settings):
+    oversized = "x" * (settings.CONVERSATION_MAX_TEXT_LENGTH + 1)
+    response = world.client.post(
+        TURN_URL, turn_body(world.robot, world.child, text=oversized),
+        format="json",
+    )
+    assert response.status_code == 400
+    assert "text" in response.json()
+    assert ai.calls == []
+
+
+def test_text_at_the_bound_is_accepted(world, ai, settings):
+    at_bound = "x" * settings.CONVERSATION_MAX_TEXT_LENGTH
+    response = world.client.post(
+        TURN_URL, turn_body(world.robot, world.child, text=at_bound),
+        format="json",
+    )
+    assert response.status_code == 200, response.content
+    assert len(ai.calls) == 1
+
+
+def test_oversized_audio_turn_is_rejected_400(world, ai, settings):
+    oversized_audio = "A" * (settings.CONVERSATION_MAX_AUDIO_BASE64_LENGTH + 1)
+    response = world.client.post(
+        TURN_URL,
+        turn_body(world.robot, world.child, text=None, audio=oversized_audio),
+        format="json",
+    )
+    assert response.status_code == 400
+    assert "audio" in response.json()
+    assert ai.calls == []
+
+
+def test_oversized_request_body_is_rejected(world, ai, settings):
+    # DATA_UPLOAD_MAX_MEMORY_SIZE backstop: Django rejects the request
+    # before the serializer runs (RequestDataTooBig -> 4xx).
+    oversized = "x" * (settings.DATA_UPLOAD_MAX_MEMORY_SIZE + 1024)
+    response = world.client.post(
+        TURN_URL, turn_body(world.robot, world.child, text=oversized),
+        format="json",
+    )
+    assert response.status_code in (400, 413)
+    assert ai.calls == []
+
+
 # --- ownership boundaries ---------------------------------------------------
 
 

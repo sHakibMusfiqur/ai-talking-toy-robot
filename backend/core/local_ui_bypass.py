@@ -22,6 +22,8 @@ class LocalUiTestBypassMiddleware:
         self.get_response = get_response
 
     def __call__(self, request):
+        if request.path.startswith("/api/"):
+            return self.get_response(request)
         if bypass_active(request) and not request.user.is_authenticated:
             user_model = get_user_model()
             user = (

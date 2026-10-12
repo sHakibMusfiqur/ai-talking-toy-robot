@@ -67,6 +67,12 @@ class MqttBridgeSubscriber:
                 extra={"device_id": device_id, "mqtt_category": category},
             )
             return
+        if robot.pairing_status != Robot.PAIRING_PAIRED:
+            logger.warning(
+                "mqtt message for unpaired device dropped",
+                extra={"device_id": device_id, "mqtt_category": category},
+            )
+            return
         if category == topics.STATUS:
             self._handle_status(robot, raw)
         elif category == topics.HEARTBEAT:
@@ -144,10 +150,6 @@ def create_bridge_connection(subscriber):
 
 
 def start_bridge():
-    """Provision the bridge client, connect with bounded backoff and
-    subscribe to the exact Section 11.2 filters. Returns the live
-    subscriber (its .connection is connected). Raises MqttError only if the
-    broker rejects our credentials (retrying cannot fix that)."""
     ensure_bridge_client()
     subscriber = MqttBridgeSubscriber()
     connection = create_bridge_connection(subscriber)

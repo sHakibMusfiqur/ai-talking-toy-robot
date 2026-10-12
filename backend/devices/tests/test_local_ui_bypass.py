@@ -137,16 +137,31 @@ def test_controller_page_accessible_without_login(bypass_parent):
         assert f'data-action="{action}"' in html, action
 
 
-def test_controller_page_apis_work_without_login(bypass_parent):
-    # The Controller page's JS calls these owner-scoped APIs; they must
-    # resolve under the bypass or the page would bounce to /login/.
+def test_controller_page_apis_require_auth_even_under_bypass(bypass_parent):
+    # Phase A (F-05): the local-UI bypass never authenticates /api/ routes.
+    # The controller page's JS calls these owner-scoped APIs; under the
+    # bypass they return 401 (the page itself still renders — see
+    # test_controller_page_accessible_without_login).
     robot = _robot(bypass_parent)
     with _settings_on():
         client = APIClient()
         summary = client.get(f"/api/v1/devices/{robot.pk}/summary/")
         state = client.get(f"/api/v1/devices/{robot.pk}/state/")
-    assert summary.status_code == 200
-    assert state.status_code == 200
+    assert summary.status_code == 401
+    assert state.status_code == 401
+
+
+def test_command_post_under_bypass_is_401(bypass_parent):
+    # Writes are gated the same way: the bypass can never drive a robot
+    # through the REST command contract without a real session.
+    robot = _robot(bypass_parent)
+    with _settings_on():
+        response = APIClient().post(
+            f"/api/v1/devices/{robot.pk}/command/",
+            {"action": "wave"},
+            format="json",
+        )
+    assert response.status_code == 401
 
 
 def test_login_page_still_renders_with_bypass_active(bypass_parent):

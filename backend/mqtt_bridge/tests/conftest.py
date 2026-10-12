@@ -1,52 +1,17 @@
-import socket
 import uuid
 
 import pytest
 from django.conf import settings
 
-from mqtt_bridge.provisioning import ensure_bridge_client, ensure_device_client
-from mqtt_bridge.subscriber import start_bridge
+from mqtt_bridge.provisioning import ensure_device_client
 from mqtt_bridge import topics
 
 from .helpers import MqttTestClient
 
-BROKER_START_CMD = (
-    "docker compose --env-file .env -f infra/docker-compose.yml up -d mosquitto"
-)
-
-
-@pytest.fixture(scope="session")
-def broker():
-    if not settings.MQTT_ADMIN_PASSWORD or not settings.MQTT_BRIDGE_PASSWORD:
-        pytest.fail(
-            "MQTT_ADMIN_PASSWORD/MQTT_BRIDGE_PASSWORD are not configured — "
-            "the repo-root .env must define them for Phase 8 tests."
-        )
-    try:
-        with socket.create_connection(
-            (settings.MQTT_HOST, settings.MQTT_PORT), timeout=3
-        ):
-            pass
-    except OSError as exc:
-        pytest.fail(
-            f"Mosquitto is not reachable at "
-            f"{settings.MQTT_HOST}:{settings.MQTT_PORT} ({exc}) — "
-            f"start it with: {BROKER_START_CMD}"
-        )
-    try:
-        ensure_bridge_client()
-    except Exception as exc:  # pragma: no cover - failure diagnostics
-        pytest.fail(f"could not provision the django-service client: {exc}")
-    return settings
-
-
-@pytest.fixture(scope="session")
-def bridge(broker):
-    """The production bridge subscriber, live for the whole session —
-    ingestion tests publish real messages and observe real DB writes."""
-    subscriber = start_bridge()
-    yield subscriber
-    subscriber.connection.disconnect()
+# ``broker``/``bridge`` live in the ROOT conftest (backend/conftest.py):
+# session fixtures must be defined exactly once per pytest session or pytest
+# would instantiate a second live bridge with the same client_id, and the
+# two connections would take over each other's broker session forever.
 
 
 @pytest.fixture

@@ -10,7 +10,11 @@ from .helpers import wait_until
 
 def _robot(device_id=None):
     device_id = device_id or str(uuid.uuid4())
-    return Robot.objects.create(device_id=device_id)
+    # Ingestion is pairing-gated (Phase A / F-02): these tests exercise the
+    # post-pairing path, so the robot must already be paired.
+    return Robot.objects.create(
+        device_id=device_id, pairing_status=Robot.PAIRING_PAIRED
+    )
 
 
 def _status_topic(robot):
@@ -230,3 +234,84 @@ def test_bridge_routes_event_through_service_layer(bridge, make_device, monkeypa
     assert calls[0]["robot"].pk == robot.pk
     assert calls[0]["event_type"] == "safety_stop"
     assert calls[0]["payload"] == {"reason": "test"}
+
+
+# --- Pairing gate (Phase A, F-02): unpaired devices never ingested --------
+
+
+def _unpaired_robot(device_id=None):
+    device_id = device_id or str(uuid.uuid4())
+    return Robot.objects.create(
+        device_id=device_id, pairing_status=Robot.PAIRING_UNPAIRED
+    )
+
+
+@pytest.mark.django_db(transaction=True)
+def test_unpaired_device_status_is_dropped(bridge, make_device):
+    robot = _unpaired_robot()
+    device = make_device(device_id=robot.device_id, subscribe_to_own=False)
+    device.publish(_status_topic(robot), {"online": True}, qos=1)
+    assert not wait_until(
+        lambda: RobotState.objects.filter(robot=robot).exists(), timeout=1.5
+    ), "unpaired device status was ingested"
+    robot.refresh_from_db()
+    assert robot.last_seen is None, "unpaired publish must not touch last_seen"
+
+
+@pytest.mark.django_db(transaction=True)
+def test_unpaired_device_heartbeat_is_dropped(bridge, make_device):
+    robot = _unpaired_robot()
+    device = make_device(device_id=robot.device_id, subscribe_to_own=False)
+    device.publish(topics.heartbeat_topic(robot.device_id), b"", qos=0)
+    assert not wait_until(
+        lambda: RobotState.objects.filter(robot=robot).exists(), timeout=1.5
+    ), "unpaired device heartbeat was ingested"
+
+
+@pytest.mark.django_db(transaction=True)
+def test_unpaired_device_event_is_dropped(bridge, make_device):
+    robot = _unpaired_robot()
+    device = make_device(device_id=robot.device_id, subscribe_to_own=False)
+    device.publish(
+        topics.event_topic(robot.device_id),
+        {"event_type": "firmware.started"},
+        qos=1,
+    )
+    assert not wait_until(
+        lambda: RobotEvent.objects.filter(robot=robot).exists(), timeout=1.5
+    ), "unpaired device event was ingested"
+
+
+@pytest.mark.django_db(transaction=True)
+def test_pairing_gates_all_three_categories_then_resumes_after_pairing(
+    bridge, make_device
+):
+    """Registered-but-unpaired device publishes all three categories: all
+    dropped. After the robot is marked paired, the same device's messages
+    are ingested (the gate is state-based, not connection-based)."""
+    robot = _unpaired_robot()
+    device = make_device(device_id=robot.device_id, subscribe_to_own=False)
+
+    device.publish(_status_topic(robot), {"online": True}, qos=1)
+    device.publish(topics.heartbeat_topic(robot.device_id), b"", qos=0)
+    device.publish(
+        topics.event_topic(robot.device_id), {"event_type": "boot"}, qos=1
+    )
+    assert not wait_until(
+        lambda: RobotState.objects.filter(robot=robot).exists(), timeout=1.5
+    )
+    assert not wait_until(
+        lambda: RobotEvent.objects.filter(robot=robot).exists(), timeout=1.2
+    )
+
+    robot.pairing_status = Robot.PAIRING_PAIRED
+    robot.save(update_fields=["pairing_status"])
+
+    device.publish(_status_topic(robot), {"online": True, "battery_percent": 50}, qos=1)
+    assert _wait_state(robot), "paired device status not ingested after pairing"
+    device.publish(
+        topics.event_topic(robot.device_id), {"event_type": "post_pair"}, qos=1
+    )
+    assert wait_until(
+        lambda: RobotEvent.objects.filter(robot=robot).exists(), timeout=6
+    ), "paired device event not ingested after pairing"

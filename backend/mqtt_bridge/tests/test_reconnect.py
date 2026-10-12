@@ -32,7 +32,11 @@ def test_backoff_uses_configuration_bounds():
 
 
 def _robot():
-    return Robot.objects.create(device_id=str(uuid.uuid4()))
+    # Ingestion is pairing-gated (Phase A / F-02): reconnect recovery is
+    # observed through status ingestion, so the robot must be paired.
+    return Robot.objects.create(
+        device_id=str(uuid.uuid4()), pairing_status=Robot.PAIRING_PAIRED
+    )
 
 
 def _publish_and_wait_state(device, robot, battery, timeout=8):

@@ -111,3 +111,27 @@ def test_nested_context_extra_field_rejected(client, auth_headers, make_payload)
     payload["context"] = {"recent_turns": [], "memories": [], "db_connection": "mongodb://x"}
     r = client.post(ENDPOINT, json=payload, headers=auth_headers)
     assert r.status_code == 422
+
+
+# --- payload bounds (Phase A, mirrors Django CONVERSATION_MAX_* settings) ---
+
+
+def test_oversized_text_rejected(client, auth_headers, make_payload):
+    from contract.schemas import MAX_TEXT_LENGTH
+
+    r = client.post(
+        ENDPOINT,
+        json=make_payload(text="x" * (MAX_TEXT_LENGTH + 1)),
+        headers=auth_headers,
+    )
+    assert r.status_code == 422
+
+
+def test_oversized_audio_rejected(client, auth_headers, make_payload):
+    from contract.schemas import MAX_AUDIO_BASE64_LENGTH
+
+    payload = make_payload()
+    payload.pop("text")
+    payload["audio"] = "A" * (MAX_AUDIO_BASE64_LENGTH + 1)
+    r = client.post(ENDPOINT, json=payload, headers=auth_headers)
+    assert r.status_code == 422

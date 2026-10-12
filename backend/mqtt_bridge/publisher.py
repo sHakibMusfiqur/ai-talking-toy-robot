@@ -53,10 +53,14 @@ class MqttPublisher:
 
 
 def get_publisher():
-    """Lazy singleton; one bounded connect attempt per creation. Transport
-    failure raises MqttError (views map it to 503)."""
     global _publisher
     with _publisher_lock:
+        if _publisher is not None and not _publisher.connection.is_usable():
+            try:
+                _publisher.connection.disconnect()
+            except Exception:  # noqa: BLE001 - teardown must never raise
+                pass
+            _publisher = None
         if _publisher is None:
             connection = MqttConnection(
                 client_id=f"django-publisher-{os.getpid()}",

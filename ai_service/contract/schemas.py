@@ -9,6 +9,10 @@ from .enums import Action, Emotion, Language, LanguageHint, Mode, SafetyAction, 
 STRICT = ConfigDict(extra="forbid")
 
 
+MAX_TEXT_LENGTH = 4000
+MAX_AUDIO_BASE64_LENGTH = 1_400_000
+
+
 class MemoryWrite(BaseModel):
     model_config = STRICT
 
@@ -39,9 +43,9 @@ class AIInputContract(BaseModel):
     conversation_id: str = Field(min_length=1)
     child_profile_id: str = Field(min_length=1)
     robot_id: str = Field(min_length=1)
-    text: Optional[str] = Field(default=None, min_length=1)
+    text: Optional[str] = Field(default=None, min_length=1, max_length=MAX_TEXT_LENGTH)
     # Base64 encoding of the contract's binary `audio` field (JSON transport).
-    audio: Optional[str] = None
+    audio: Optional[str] = Field(default=None, max_length=MAX_AUDIO_BASE64_LENGTH)
     language_hint: Optional[LanguageHint] = None
     context: ContextBlock
     mode: Mode = Mode.CONVERSATION
