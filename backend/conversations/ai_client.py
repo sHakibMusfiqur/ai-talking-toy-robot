@@ -20,7 +20,7 @@ class AIServiceError(Exception):
 
 
 def call_ai_turn(payload, *, base_url=None, token=None, timeout=None, transport=None):
- 
+   
     base_url = settings.AI_SERVICE_URL if base_url is None else base_url
     token = settings.AI_SERVICE_INTERNAL_TOKEN if token is None else token
     timeout = settings.AI_SERVICE_TIMEOUT_SECONDS if timeout is None else timeout

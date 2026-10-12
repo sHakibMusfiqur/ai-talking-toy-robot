@@ -31,9 +31,7 @@ def _parse_id(request_data, field, *, required=True):
 
 
 def _resolve_context(request, *, robot_id, child_profile_id, conversation_id):
-    """Owner-scoped resolution of everything the turn touches (404 on any
-    miss). A device token never needs to - and never gets to - name a
-    robot other than its own."""
+   
     auth = request.auth
     if isinstance(auth, dict) and "robot" in auth:
         robot = auth["robot"]
@@ -71,7 +69,7 @@ def _resolve_context(request, *, robot_id, child_profile_id, conversation_id):
 
 
 class ConversationTurnView(APIView):
-    
+   
 
     authentication_classes = [SessionAuthentication, DeviceJWTAuthentication]
     permission_classes = [ConversationTurnPermission]
