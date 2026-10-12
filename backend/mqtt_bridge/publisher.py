@@ -53,6 +53,8 @@ class MqttPublisher:
 
 
 def get_publisher():
+    """Lazy singleton; one bounded connect attempt per creation. Transport
+    failure raises MqttError (views map it to 503)."""
     global _publisher
     with _publisher_lock:
         if _publisher is not None and not _publisher.connection.is_usable():

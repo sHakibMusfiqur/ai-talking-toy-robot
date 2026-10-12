@@ -283,8 +283,17 @@ Request body:
   for unknown vs not-owned; ownership resolves before body validation, so
   a foreign caller can never probe action validity)
 - `405` - any method other than POST
-- `503` - `{"detail": "Robot command service unavailable."}` (MQTT transport
-  failure; nothing was delivered)
+- `429` - `{"detail": "Command repeated too quickly."}` (additive Phase A
+  duplicate-command suppression: the same authenticated user repeated a
+  command for the same robot inside `ROBOT_COMMAND_COOLDOWN_SECONDS`
+  (default 1s, per-process); retry once the window has passed)
+- `503` - `{"detail": "Robot command service unavailable."}` (MQTT
+  transport failure; delivery is **unconfirmed**, not disproven. For a
+  connection-level failure the message was never handed to a healthy
+  broker session, but a QoS 1 acknowledgement timeout only means the
+  broker's ack did not arrive within the publish window - the command may
+  already have reached the robot. An immediate retry after a `503` can
+  therefore cause a duplicate action.)
 
 Successful **admin** commands append an `AuditLog` row
 (`action="robot.commanded"`, `target=<robot id>`, actor + ip); parent

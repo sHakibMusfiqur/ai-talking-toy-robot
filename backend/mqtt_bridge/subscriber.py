@@ -150,6 +150,7 @@ def create_bridge_connection(subscriber):
 
 
 def start_bridge():
+   
     ensure_bridge_client()
     subscriber = MqttBridgeSubscriber()
     connection = create_bridge_connection(subscriber)
