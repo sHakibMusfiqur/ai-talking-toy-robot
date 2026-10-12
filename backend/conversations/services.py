@@ -31,7 +31,13 @@ SEVERITY_BY_SAFETY_ACTION = {
 
 
 def build_context(conversation):
-    
+    """Assemble the server-side context block for one turn (Section 15.2).
+
+    Only this conversation's own recent non-blank turns, bounded at
+    `RECENT_TURNS_LIMIT` (child -> "user", robot -> "assistant").
+    `memories` stays empty until Phase 14; clients can never supply
+    this field (AR-5b).
+    """
     recent_turns = []
     for message in conversation.messages.order_by("timestamp", "pk"):
         text = (message.text or "").strip()

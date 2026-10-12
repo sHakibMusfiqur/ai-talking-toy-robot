@@ -20,7 +20,13 @@ class AIServiceError(Exception):
 
 
 def call_ai_turn(payload, *, base_url=None, token=None, timeout=None, transport=None):
-   
+    """Call the AI service's frozen turn endpoint and return its response.
+
+    Fails closed (reason "config") when the internal token is not
+    configured, and maps transport/HTTP/contract failures to the coarse
+    `AIServiceError` reasons the fallback path in `services.py` consumes.
+    Contract-violation log messages carry field names only, never values.
+    """
     base_url = settings.AI_SERVICE_URL if base_url is None else base_url
     token = settings.AI_SERVICE_INTERNAL_TOKEN if token is None else token
     timeout = settings.AI_SERVICE_TIMEOUT_SECONDS if timeout is None else timeout

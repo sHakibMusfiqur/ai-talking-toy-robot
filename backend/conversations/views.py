@@ -31,7 +31,9 @@ def _parse_id(request_data, field, *, required=True):
 
 
 def _resolve_context(request, *, robot_id, child_profile_id, conversation_id):
-   
+    """Owner-scoped resolution of everything the turn touches (404 on any
+    miss). A device token never needs to - and never gets to - name a
+    robot other than its own."""
     auth = request.auth
     if isinstance(auth, dict) and "robot" in auth:
         robot = auth["robot"]
@@ -69,7 +71,14 @@ def _resolve_context(request, *, robot_id, child_profile_id, conversation_id):
 
 
 class ConversationTurnView(APIView):
-   
+    """`POST /api/v1/conversations/turn/` - the single AI-calling boundary.
+
+    Accepts a session caller (owner-scoped; admins are not elevated) or a
+    device Bearer JWT scoped to its own robot. Validation order: 401 ->
+    id syntax 400 -> ownership 404 -> remaining envelope 400. A failed
+    AI-service call still answers 200 with the local Section 15.3
+    fallback; the response is always the frozen Output Contract.
+    """
 
     authentication_classes = [SessionAuthentication, DeviceJWTAuthentication]
     permission_classes = [ConversationTurnPermission]
