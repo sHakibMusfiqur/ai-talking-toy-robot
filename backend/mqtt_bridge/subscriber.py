@@ -150,7 +150,12 @@ def create_bridge_connection(subscriber):
 
 
 def start_bridge():
- 
+    """Provision the bridge client, connect with bounded backoff and
+    subscribe to the exact Section 11.2 filters. Returns the live
+    subscriber (its .connection is connected). Raises MqttError if client
+    provisioning fails or the broker rejects our credentials;
+    unreachable-broker connect errors are retried forever with bounded
+    backoff."""
     ensure_bridge_client()
     subscriber = MqttBridgeSubscriber()
     connection = create_bridge_connection(subscriber)

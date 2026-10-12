@@ -122,7 +122,20 @@ class MqttConnection:
         return self
 
     def publish(self, topic, payload, *, qos, retain=False, timeout=None):
-       
+        """Publish one message and wait for the broker ack (QoS 1).
+
+        Fail-safe contract (Phase A, F-08): the connection is poisoned on
+        ANY transport failure (not-connected, send rejected, ack timeout)
+        and raises MqttError. Poisoning tears the connection down
+        completely (network loop stopped) — paho queues QoS>0 messages and
+        would re-deliver them after an auto-reconnect, which would break
+        the HTTP request/response boundary. An acknowledgement timeout
+        means delivery is unconfirmed, not disproven: the payload may
+        already have reached the broker, so the caller (which maps every
+        MqttError to 503) cannot prove non-delivery — and an immediate
+        retry may duplicate the action. Callers must discard a poisoned
+        connection and create a fresh one (get_publisher does this
+        automatically)."""
         if self._failed:
             raise MqttError("mqtt connection poisoned after previous failure")
         if not self._client.is_connected():
