@@ -3,7 +3,7 @@ from rest_framework.throttling import SimpleRateThrottle
 
 
 class ConversationTurnThrottle(SimpleRateThrottle):
-   
+  
 
     scope = "conversation-turn"
 
