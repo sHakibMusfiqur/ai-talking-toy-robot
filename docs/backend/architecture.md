@@ -800,20 +800,53 @@ read from the installed venv)
   `AUDIO_UPLOAD_MAX_BODY_BYTES = 1064960` (1 MiB + 16 KiB multipart
   envelope allowance), `FILE_UPLOAD_MAX_MEMORY_SIZE` pinned to the body
   bound (settings + `.env.example`).
-- Layered enforcement for `POST /api/v1/conversations/turn/audio/`:
-  (1) header-only pre-parse `Content-Length` gate -> `400` before any
-  body read (WSGI middleware-style check at the top of the view; ASGI
+- Pre-parse size gate (**middleware/ASGI level, before authentication
+  and before any body read**): a header-only `Content-Length` check
+  scoped to the audio path. On WSGI this is a **middleware-level** gate
+  that runs before dispatch and before authentication; on ASGI it is a
   wrapper in `config/asgi.py` that answers before delegating, so
-  `read_body` never runs); (2) a request-scoped bounded in-memory upload
-  handler (BytesIO only, hard 1 MiB byte cap -> `400`, never a temp
-  file); (3) serializer size/sidecar validation -> `400`; (4) device
-  Bearer JWT only, so no session-CSRF path can parse audio. Missing or
-  non-integer `Content-Length` and chunked uploads -> `400` (the firmware
-  always sends `Content-Length`).
-- Deployment note (deployment phase, no proxy in this repo today):
-  a reverse proxy must allow at least `AUDIO_UPLOAD_MAX_BODY_BYTES`
+  `read_body` never runs. Missing, non-integer, or oversized (>
+  `AUDIO_UPLOAD_MAX_BODY_BYTES`) values, and chunked uploads -> `400`
+  (the firmware always sends `Content-Length`). Because this gate is
+  pre-authentication, such a request may be answered `400` **before any
+  `401`** - a transport-size rejection that never reveals anything about
+  credentials; do not promise that every unauthenticated audio request
+  receives `401`.
+- View-level validation (**after** authentication and throttle): a
+  request-scoped bounded in-memory upload handler (BytesIO only, hard
+  1 MiB byte cap -> `400`, never a temp file) plus serializer
+  sidecar/file/id validation -> `400`; ownership -> `404`. Device Bearer
+  JWT only, so no session-CSRF path can parse audio.
+- Intended validation order: pre-parse gate (`400` - may precede
+  authentication) -> authentication `401` -> throttle `429` -> request
+  validation `400` -> ownership `404` -> idempotency conflict/replay ->
+  processing. Once past the gate, unauthenticated/throttled requests
+  never reach multipart parsing.
+- Idempotency: `Idempotency-Key` keyed per robot, retention TTL **600
+  seconds (10 minutes)**, process-local locmem. An identical payload
+  within the TTL replays the stored response with **`Idempotency-Replayed:
+  true`**; the same robot/key with a different payload -> **`409`**.
+  Replays share the caller's `30/min` bucket; the check runs after
+  ownership, before processing.
+- Privacy scope: the guarantees above are **application-level** - Django
+  never persists raw audio to the database, logs, or disk (bounded
+  in-memory handler). **End-to-end disk-free handling is not yet
+  verified**: the real deployment's proxy/server request-body buffering
+  must be inspected and configured before that claim is made; the current
+  repo deploys `runserver` directly behind no proxy, so no such
+  verification exists today.
+- Deployment follow-up (deployment phase, no proxy in this repo today):
+  before this endpoint ships behind a reverse proxy, configure **both**
+  (a) the body-size limit to at least `AUDIO_UPLOAD_MAX_BODY_BYTES`
   (e.g. nginx `client_max_body_size 2m`) so the app's `400` contract is
-  what clients see for app-detectable oversize.
+  what clients see for app-detectable oversize, **and** (b)
+  **request-body buffering** so the proxy itself does not spool raw
+  audio to disk - nginx buffers request bodies larger than
+  `client_body_buffer_size` (default ~8/16 KiB) to its temp files, so
+  set it to at least `AUDIO_UPLOAD_MAX_BODY_BYTES` or place
+  `client_body_temp_path` on tmpfs, and verify the real deployment
+  before claiming end-to-end disk-free handling. Accepted input stays
+  1 MiB; oversized stays `400`.
 - Planned tests (7 groups): accepted body stays in memory (temp-file
   spy); oversized rejected pre-parse (parser spy count 0); handler
   aborts before disk; WSGI client + direct ASGI-wrapper paths; raw-audio
@@ -827,6 +860,8 @@ read from the installed venv)
 Firmware capture/wakeword/VAD/playback and the 15 s on-device duration
 cap (Part 1, Phase 12 firmware work); real TTS/STT providers (AI HOLD);
 idempotency store beyond single-process locmem; follow-up download URLs
-for oversized replies; HTTP 413 responses (400 approved instead); any
-change to the JSON turn endpoint, the frozen AI contract fields, or the
-`30/min` rate.
+for oversized replies; HTTP 413 responses (400 approved instead);
+verification of end-to-end disk-free handling (requires the real
+deployment's proxy/server buffering configuration - see the deployment
+follow-up above); any change to the JSON turn endpoint, the frozen AI
+contract fields, or the `30/min` rate.

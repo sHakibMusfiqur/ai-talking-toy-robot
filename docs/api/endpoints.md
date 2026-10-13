@@ -592,7 +592,9 @@ view, for firmware clients.
 
 - **Caller: device Bearer JWT only** (Phase 7). Session callers use the
   JSON turn endpoint above; an audio upload with a session cookie (or no
-  credentials) is `401` and its body is never parsed. The robot comes
+  credentials) is `401` and its body is never parsed - unless the
+  pre-parse size gate has already answered `400` (see validation order
+  below: that gate runs before authentication). The robot comes
   from the token; the child profile must belong to that robot's parent.
 - **Throttle:** the same `CONVERSATION_TURN_RATE_LIMIT` bucket as the
   JSON turn (`30/min`, keyed by robot for device callers). Idempotent
@@ -603,20 +605,42 @@ view, for firmware clients.
   `{"conversation_id": …, "language_hint": …, "child_profile_id": …}`
   (`mode` intentionally absent). The firmware additionally enforces a
   15 s maximum recording duration at capture.
-- **`Idempotency-Key` header:** a duplicate key within the retention
-  window replays the stored response instead of reprocessing; storage is
-  process-local (in-memory), single-process exact.
-- **Errors, in the JSON-turn order:** `401` (authentication) -> `429`
-  (throttle) -> `400` (missing/malformed/oversized `Content-Length`,
-  bad sidecar, missing/oversized `audio` file, id-syntax issues) ->
-  `404` (ownership) -> `400` (remaining envelope). Every rejection is a
-  small fixed `{"detail"/"<field>": …}` JSON body; oversized uploads are
-  **`400`** (not `413`). Unauthenticated and throttled requests are
-  rejected before any multipart parsing (no body read).
+- **`Idempotency-Key` header:** keyed per robot, retention TTL **600
+  seconds (10 minutes)**. A duplicate with an identical payload within
+  the TTL replays the stored response instead of reprocessing, and the
+  replay response carries **`Idempotency-Replayed: true`**; the same
+  robot/key reused with a different payload is **`409 Conflict`**
+  (`{"detail": ...}`). Storage is process-local (in-memory),
+  single-process exact. The check runs after authentication, throttle,
+  request validation, and ownership (order below).
+- **Validation order:** the header-only pre-parse `Content-Length` gate
+  (WSGI middleware / ASGI wrapper) may reject a **missing, malformed, or
+  oversized** value with `400` **before authentication** - a
+  transport-size rejection that reveals nothing about credentials, so
+  not every unauthenticated audio request receives `401`. Otherwise the
+  intended authenticated flow is: authentication `401` -> throttle `429`
+  -> request validation `400` (bad sidecar, missing/oversized `audio`
+  file, id-syntax issues) -> ownership `404` -> idempotency replay
+  (`200`, marked `Idempotency-Replayed: true`) or conflict (`409`) ->
+  processing. Every rejection is a small fixed
+  `{"detail"/"<field>": ...}` JSON body; oversized uploads are
+  **`400`** (not `413`). Once past the gate, unauthenticated and
+  throttled requests are rejected before any multipart parsing (no body
+  read).
 - **Response:** always the frozen 8-field Output Contract at `200`,
   including the Section 15.3 local fallback when the AI service hard-
   fails (identical rules to the JSON turn); `audio` in the response is
   capped at 1,400,000 base64 characters.
-- **Privacy:** the raw child audio is forwarded to the AI service once
-  and never persisted to disk, database, or logs; accepted uploads are
-  held in memory only (`Message.audio_reference` stays empty).
+- **Privacy (application level):** the raw child audio is forwarded to
+  the AI service once and is never persisted by the application to the
+  database or logs; application-level upload handling keeps accepted
+  uploads in memory only (`Message.audio_reference` stays empty; bounded
+  in-memory upload handler, no temp files). **End-to-end disk-free
+  handling is not yet verified** - it may only be claimed after the real
+  deployment's proxy/server request-body buffering is inspected and
+  configured: a reverse proxy must accept at least
+  `AUDIO_UPLOAD_MAX_BODY_BYTES` (e.g. `client_max_body_size 2m`) **and**
+  buffer request bodies in memory/tmpfs rather than on disk
+  (`client_body_buffer_size` / `client_body_temp_path` - see
+  `docs/backend/architecture.md`). Accepted input stays **1 MiB** and
+  oversized stays **`400`**.
