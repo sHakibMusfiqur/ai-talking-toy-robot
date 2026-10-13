@@ -1,6 +1,7 @@
 import logging
 import time
 
+from bson import ObjectId
 from django_mongodb_backend import transaction
 
 from memory.models import Memory
@@ -106,6 +107,20 @@ def _store_memory_writes(writes, *, child_profile, conversation):
     return stored
 
 
+def _ensure_conversation_row(conversation):
+    """Insert a pre-assigned `Conversation` inside the caller's transaction.
+
+    `run_conversation_turn` pre-assigns the id of a brand-new conversation
+    (so the AI payload carries the final `conversation_id`) but never
+    inserts it up front; the first persist call inserts the row inside its
+    own `transaction.atomic()` block, so a persistence failure rolls the
+    conversation and the turn records back together. A conversation loaded
+    from the database is left untouched.
+    """
+    if conversation._state.adding:
+        conversation.save()
+
+
 def _persist_turn(
     *,
     conversation,
@@ -117,6 +132,7 @@ def _persist_turn(
     latency_ms,
 ):
     with transaction.atomic():
+        _ensure_conversation_row(conversation)
         child_message = Message.objects.create(
             conversation=conversation,
             role=Message.ROLE_CHILD,
@@ -160,6 +176,7 @@ def _persist_turn(
 
 def _persist_fallback(*, conversation, text, audio, latency_ms, reason):
     with transaction.atomic():
+        _ensure_conversation_row(conversation)
         child_message = Message.objects.create(
             conversation=conversation,
             role=Message.ROLE_CHILD,
@@ -196,12 +213,17 @@ def run_conversation_turn(
     Never raises for an AI-service problem: every `AIServiceError`
     becomes the local fallback response with the robot reply persisted, so
     the device always gets an answer in the same response cycle.
+
+    A brand-new conversation's id is pre-assigned here so the AI payload
+    carries the final `conversation_id`, but the document is only inserted
+    inside the same persistence transaction as the turn records (see
+    `_ensure_conversation_row`), so a persistence failure rolls the whole
+    turn back instead of leaving an orphaned `Conversation`.
     """
     if conversation is None:
-        with transaction.atomic():
-            conversation = Conversation.objects.create(
-                robot=robot, child_profile=child_profile
-            )
+        conversation = Conversation(
+            id=ObjectId(), robot=robot, child_profile=child_profile
+        )
 
     context = build_context(conversation)
     payload = build_ai_input(
