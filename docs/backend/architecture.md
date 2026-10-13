@@ -765,3 +765,68 @@ conversation/safety-history read endpoints (Phase 17); no mode-specific
 pipeline (Phase 15); no change to the frozen AI contract, semantic-action
 set, MQTT contract, device auth, ownership rules, or UI. AI
 model/provider integration remains explicitly on hold.
+
+## Phase 12 audio upload design (documentation only, 2026-10-13)
+
+Owner-approved design recorded in `docs/01-MASTER-SYSTEM-PLAN.md`
+(2026-10-13 decision record) and `docs/api/endpoints.md`. **No code
+exists yet** - implementation is a separately approved step.
+
+### Verified behaviour this design relies on (Django 5.2.17 / DRF 3.18.1,
+read from the installed venv)
+
+- Default upload handlers are `MemoryFileUploadHandler` then
+  `TemporaryFileUploadHandler`; the memory handler claims a part only
+  when `Content-Length <= FILE_UPLOAD_MAX_MEMORY_SIZE` (default
+  2,621,440), so today an accepted ~1 MiB body stays in RAM but anything
+  above 2.5 MB would spill to an OS temp file before the view runs.
+- WSGI bodies are lazy `LimitedStream`s: at most `Content-Length` bytes
+  are ever read, so a request rejected on headers alone reads no body.
+- ASGI reads the whole body up front into a `SpooledTemporaryFile`
+  (`max_size = FILE_UPLOAD_MAX_MEMORY_SIZE`) - above that it rolls to
+  disk **before** Django views/middleware run; only an ASGI-level wrapper
+  can prevent that.
+- `DATA_UPLOAD_MAX_MEMORY_SIZE` (5 MiB) counts only non-file form
+  fields; file parts are unbounded by Django itself.
+- DRF ordering is authentication -> permissions -> throttles -> handler;
+  `SessionAuthentication.enforce_csrf` reads `request.POST` (full parse)
+  for POSTs, while device JWT auth reads only headers;
+  `CsrfViewMiddleware` skips `csrf_exempt` DRF views; `RequestDataTooBig`
+  is answered `400`; no `LOGGING` config exists that could log payloads.
+
+### Proposed application behaviour (to be implemented when approved)
+
+- Constants: `AUDIO_UPLOAD_MAX_FILE_BYTES = 1048576`,
+  `AUDIO_UPLOAD_MAX_BODY_BYTES = 1064960` (1 MiB + 16 KiB multipart
+  envelope allowance), `FILE_UPLOAD_MAX_MEMORY_SIZE` pinned to the body
+  bound (settings + `.env.example`).
+- Layered enforcement for `POST /api/v1/conversations/turn/audio/`:
+  (1) header-only pre-parse `Content-Length` gate -> `400` before any
+  body read (WSGI middleware-style check at the top of the view; ASGI
+  wrapper in `config/asgi.py` that answers before delegating, so
+  `read_body` never runs); (2) a request-scoped bounded in-memory upload
+  handler (BytesIO only, hard 1 MiB byte cap -> `400`, never a temp
+  file); (3) serializer size/sidecar validation -> `400`; (4) device
+  Bearer JWT only, so no session-CSRF path can parse audio. Missing or
+  non-integer `Content-Length` and chunked uploads -> `400` (the firmware
+  always sends `Content-Length`).
+- Deployment note (deployment phase, no proxy in this repo today):
+  a reverse proxy must allow at least `AUDIO_UPLOAD_MAX_BODY_BYTES`
+  (e.g. nginx `client_max_body_size 2m`) so the app's `400` contract is
+  what clients see for app-detectable oversize.
+- Planned tests (7 groups): accepted body stays in memory (temp-file
+  spy); oversized rejected pre-parse (parser spy count 0); handler
+  aborts before disk; WSGI client + direct ASGI-wrapper paths; raw-audio
+  sentinel absent from DB/disk/logs on accepted and rejected paths;
+  unauthenticated/throttled/session requests never parse; Content-Length
+  edge cases (missing, non-integer, under/over-declared). Suite
+  baselines to re-verify at implementation: backend 542, ai_service 218.
+
+### Phase 12 out of scope (documented at design time)
+
+Firmware capture/wakeword/VAD/playback and the 15 s on-device duration
+cap (Part 1, Phase 12 firmware work); real TTS/STT providers (AI HOLD);
+idempotency store beyond single-process locmem; follow-up download URLs
+for oversized replies; HTTP 413 responses (400 approved instead); any
+change to the JSON turn endpoint, the frozen AI contract fields, or the
+`30/min` rate.

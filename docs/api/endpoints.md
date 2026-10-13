@@ -578,3 +578,45 @@ before ownership resolution.
 Raw child audio is forwarded to the AI service once and never stored:
 `Message.audio_reference` stays empty until Phase 12 defines audio
 transport storage.
+
+# Phase 12 Audio Upload Reference (approved design — NOT implemented yet)
+
+Documentation-only record (2026-10-13 decision record in
+`docs/01-MASTER-SYSTEM-PLAN.md`). No such endpoint exists in the codebase
+until its implementation is separately approved.
+
+### `POST /api/v1/conversations/turn/audio/`
+
+`POST /api/v1/conversations/turn/audio` (no trailing slash) is the same
+view, for firmware clients.
+
+- **Caller: device Bearer JWT only** (Phase 7). Session callers use the
+  JSON turn endpoint above; an audio upload with a session cookie (or no
+  credentials) is `401` and its body is never parsed. The robot comes
+  from the token; the child profile must belong to that robot's parent.
+- **Throttle:** the same `CONVERSATION_TURN_RATE_LIMIT` bucket as the
+  JSON turn (`30/min`, keyed by robot for device callers). Idempotent
+  replays share this bucket - never a throttle-free path.
+- **Request:** `multipart/form-data` with exactly one file part named
+  `audio` (≤ **1,048,576 bytes / 1 MiB**, server-enforced) plus a
+  `Conversation-Sidecar` header carrying JSON:
+  `{"conversation_id": …, "language_hint": …, "child_profile_id": …}`
+  (`mode` intentionally absent). The firmware additionally enforces a
+  15 s maximum recording duration at capture.
+- **`Idempotency-Key` header:** a duplicate key within the retention
+  window replays the stored response instead of reprocessing; storage is
+  process-local (in-memory), single-process exact.
+- **Errors, in the JSON-turn order:** `401` (authentication) -> `429`
+  (throttle) -> `400` (missing/malformed/oversized `Content-Length`,
+  bad sidecar, missing/oversized `audio` file, id-syntax issues) ->
+  `404` (ownership) -> `400` (remaining envelope). Every rejection is a
+  small fixed `{"detail"/"<field>": …}` JSON body; oversized uploads are
+  **`400`** (not `413`). Unauthenticated and throttled requests are
+  rejected before any multipart parsing (no body read).
+- **Response:** always the frozen 8-field Output Contract at `200`,
+  including the Section 15.3 local fallback when the AI service hard-
+  fails (identical rules to the JSON turn); `audio` in the response is
+  capped at 1,400,000 base64 characters.
+- **Privacy:** the raw child audio is forwarded to the AI service once
+  and never persisted to disk, database, or logs; accepted uploads are
+  held in memory only (`Message.audio_reference` stays empty).
