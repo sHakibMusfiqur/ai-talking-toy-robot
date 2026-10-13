@@ -3,7 +3,19 @@ from rest_framework.throttling import SimpleRateThrottle
 
 
 class ConversationTurnThrottle(SimpleRateThrottle):
-  
+    """Fixed-window cost/abuse limit on POST /api/v1/conversations/turn/.
+
+    Bucketed per principal: device callers by robot (`robot:<pk>`), session
+    callers by user (`user:<pk>`). Anonymous requests return no cache key and
+    are never throttled here - authentication still rejects them (401) long
+    before any AI-service call. An empty `CONVERSATION_TURN_RATE_LIMIT`
+    disables the limiter entirely.
+
+    Storage is the default in-memory cache: process-exact for the current
+    single-process deployment, and equally limited by the multi-worker caveat
+    already documented for ROBOT_COMMAND_COOLDOWN_SECONDS (a multi-worker
+    deployment would need a shared cache; none is adopted yet).
+    """
 
     scope = "conversation-turn"
 
