@@ -1,3 +1,6 @@
+import base64
+import json
+
 from bson import ObjectId
 from rest_framework import status
 from rest_framework.authentication import SessionAuthentication
@@ -6,12 +9,17 @@ from rest_framework.response import Response
 from rest_framework.views import APIView
 
 from accounts.models import ChildProfile, Parent
+from core.audio_upload import BoundedMemoryAudioUploadHandler
 from devices.authentication import DeviceJWTAuthentication
 from devices.models import Robot
 
 from .models import Conversation
-from .permissions import ConversationTurnPermission
-from .serializers import ConversationTurnSerializer
+from .permissions import ConversationTurnPermission, DeviceConversationPermission
+from .serializers import (
+    ConversationAudioUploadSerializer,
+    ConversationSidecarSerializer,
+    ConversationTurnSerializer,
+)
 from .services import run_conversation_turn
 from .throttles import ConversationTurnThrottle
 
@@ -32,9 +40,7 @@ def _parse_id(request_data, field, *, required=True):
 
 
 def _resolve_context(request, *, robot_id, child_profile_id, conversation_id):
-    """Owner-scoped resolution of everything the turn touches (404 on any
-    miss). A device token never needs to - and never gets to - name a
-    robot other than its own."""
+    
     auth = request.auth
     if isinstance(auth, dict) and "robot" in auth:
         robot = auth["robot"]
@@ -111,5 +117,77 @@ class ConversationTurnView(APIView):
             audio=validated.get("audio"),
             language_hint=validated.get("language_hint"),
             mode=validated["mode"],
+        )
+        return Response(result, status=status.HTTP_200_OK)
+
+
+def _parse_sidecar(request):
+    """Validate the `Conversation-Sidecar` header (Phase 12, Section 10).
+
+    Header-only: no body is read here. Order matches the documented
+    flow - sidecar/file validation (400) happens before ownership (404).
+    """
+    raw = request.headers.get("Conversation-Sidecar")
+    if not raw:
+        raise ValidationError({"Conversation-Sidecar": ["This header is required."]})
+    try:
+        payload = json.loads(raw)
+    except ValueError:
+        raise ValidationError({"Conversation-Sidecar": ["Invalid JSON."]})
+    if not isinstance(payload, dict):
+        raise ValidationError(
+            {"Conversation-Sidecar": ["Invalid data. Expected a dictionary."]}
+        )
+    serializer = ConversationSidecarSerializer(data=payload)
+    serializer.is_valid(raise_exception=True)
+    return serializer.validated_data
+
+
+class ConversationAudioTurnView(APIView):
+    """`POST /api/v1/conversations/turn/audio[/]` - device-only audio.
+
+    Device Bearer JWT only (sessions keep using the JSON turn endpoint);
+    multipart with exactly one `audio` file plus the `Conversation-Sidecar`
+    header. Validation order: pre-parse Content-Length gate (400, may run
+    before authentication - see core.audio_upload) -> 401 -> 429 -> sidecar/
+    file validation 400 -> ownership 404 -> processing. The bounded
+    in-memory upload handler is installed before the body is read, so
+    application-level handling never writes raw audio to disk; the raw
+    bytes are forwarded to the AI service once and never persisted
+    (`Message.audio_reference` stays empty).
+    """
+
+    authentication_classes = [DeviceJWTAuthentication]
+    permission_classes = [DeviceConversationPermission]
+    throttle_classes = [ConversationTurnThrottle]
+    http_method_names = ["post"]
+
+    def post(self, request):
+        request._request.upload_handlers = [BoundedMemoryAudioUploadHandler()]
+
+        sidecar = _parse_sidecar(request)
+        serializer = ConversationAudioUploadSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+
+        audio_file = serializer.validated_data["audio"]
+        audio_file.seek(0)
+        audio_b64 = base64.b64encode(audio_file.read()).decode("ascii")
+
+        token_robot = request.auth["robot"]
+        robot, child_profile, conversation = _resolve_context(
+            request,
+            robot_id=token_robot.pk,
+            child_profile_id=sidecar["child_profile_id"],
+            conversation_id=sidecar.get("conversation_id"),
+        )
+
+        result = run_conversation_turn(
+            robot=robot,
+            child_profile=child_profile,
+            conversation=conversation,
+            text=None,
+            audio=audio_b64,
+            language_hint=sidecar.get("language_hint"),
+            mode="conversation",
         )
         return Response(result, status=status.HTTP_200_OK)

@@ -94,3 +94,49 @@ class ConversationTurnSerializer(serializers.Serializer):
                 }
             )
         return attrs
+
+
+SIDECAR_FIELDS = frozenset({"conversation_id", "language_hint", "child_profile_id"})
+
+
+class ConversationSidecarSerializer(serializers.Serializer):
+    
+
+    child_profile_id = ObjectIdField()
+    conversation_id = ObjectIdField(required=False)
+    language_hint = serializers.ChoiceField(
+        choices=sorted(LANGUAGE_HINTS), required=False, allow_null=True
+    )
+
+    def validate(self, attrs):
+        if not isinstance(self.initial_data, dict):
+            raise serializers.ValidationError(
+                {"non_field_errors": ["Invalid data. Expected a dictionary."]}
+            )
+        unknown = sorted(set(self.initial_data) - SIDECAR_FIELDS)
+        if unknown:
+            raise serializers.ValidationError(
+                {field: ["Unexpected field."] for field in unknown}
+            )
+        return attrs
+
+
+class ConversationAudioUploadSerializer(serializers.Serializer):
+    
+
+    audio = serializers.FileField(allow_empty_file=False)
+
+    def validate_audio(self, value):
+        if value.size is not None and value.size > settings.AUDIO_UPLOAD_MAX_FILE_BYTES:
+            raise serializers.ValidationError(
+                "Audio file exceeds the maximum allowed size."
+            )
+        return value
+
+    def validate(self, attrs):
+        unknown = sorted(set(self.initial_data) - {"audio"})
+        if unknown:
+            raise serializers.ValidationError(
+                {field: ["Unexpected field."] for field in unknown}
+            )
+        return attrs

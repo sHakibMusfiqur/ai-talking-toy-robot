@@ -16,3 +16,12 @@ class ConversationTurnPermission(permissions.BasePermission):
             return True
         auth = request.auth
         return isinstance(auth, dict) and "robot" in auth
+
+
+class DeviceConversationPermission(permissions.BasePermission):
+  
+
+    message = "Authentication required."
+
+    def has_permission(self, request, view):
+        return isinstance(request.auth, dict) and "robot" in request.auth

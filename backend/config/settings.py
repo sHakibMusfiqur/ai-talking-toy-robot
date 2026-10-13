@@ -65,6 +65,9 @@ MIGRATION_MODULES = {
 
 MIDDLEWARE = [
     "django.middleware.security.SecurityMiddleware",
+    # Phase 12 pre-parse gate: header-only, before authentication and
+    # any body read, scoped to POST /api/v1/conversations/turn/audio[/].
+    "core.audio_upload.AudioUploadBodyGateMiddleware",
     "django.contrib.sessions.middleware.SessionMiddleware",
     "django.middleware.common.CommonMiddleware",
     "django.middleware.csrf.CsrfViewMiddleware",
@@ -213,6 +216,20 @@ CONVERSATION_MAX_AUDIO_BASE64_LENGTH = int(
 DATA_UPLOAD_MAX_MEMORY_SIZE = int(
     os.environ.get("DATA_UPLOAD_MAX_MEMORY_SIZE", str(5 * 1024 * 1024))
 )
+
+# Phase 12 secure audio upload boundary (2026-10-13 decision record):
+# 1 MiB maximum decoded file; body bound = 1 MiB + 16 KiB multipart
+# envelope allowance (pre-parse Content-Length gate). FILE_UPLOAD_MAX_
+# MEMORY_SIZE is pinned to the body bound so every gate-passing multipart
+# body stays in memory - never a temp file. Below Django's 2.5 MB default;
+# the gated audio endpoint is this repo's only multipart consumer.
+AUDIO_UPLOAD_MAX_FILE_BYTES = int(
+    os.environ.get("AUDIO_UPLOAD_MAX_FILE_BYTES", str(1024 * 1024))
+)
+AUDIO_UPLOAD_MAX_BODY_BYTES = int(
+    os.environ.get("AUDIO_UPLOAD_MAX_BODY_BYTES", str(1024 * 1024 + 16 * 1024))
+)
+FILE_UPLOAD_MAX_MEMORY_SIZE = AUDIO_UPLOAD_MAX_BODY_BYTES
 
 # Conversation-turn rate limit (cost/abuse control, Section 26): DRF
 # fixed-window throttle on POST /api/v1/conversations/turn/, keyed by
