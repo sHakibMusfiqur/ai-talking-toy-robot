@@ -2,6 +2,8 @@ import os
 import sys
 from pathlib import Path
 
+from django.core.exceptions import ImproperlyConfigured
+
 BASE_DIR = Path(__file__).resolve().parent.parent
 
 
@@ -223,12 +225,66 @@ DATA_UPLOAD_MAX_MEMORY_SIZE = int(
 # MEMORY_SIZE is pinned to the body bound so every gate-passing multipart
 # body stays in memory - never a temp file. Below Django's 2.5 MB default;
 # the gated audio endpoint is this repo's only multipart consumer.
-AUDIO_UPLOAD_MAX_FILE_BYTES = int(
-    os.environ.get("AUDIO_UPLOAD_MAX_FILE_BYTES", str(1024 * 1024))
+#
+# Env overrides may only LOWER a bound. Any value above the approved
+# contract maximum, any non-integer/negative/zero value, and any
+# combination where the file bound exceeds the body bound raises
+# ImproperlyConfigured at startup - clear and deterministic; a bound can
+# never be silently increased beyond the approved contract.
+
+
+def audio_upload_bound_from_env(env_name, raw, default, approved_max):
+    """Resolve one Phase 12 upload bound from an env value.
+
+    Empty/unset falls back to the approved default. Everything else is
+    strictly validated: ASCII digits only, length-bounded so int() can
+    never fail or blow up, at least 1, at most ``approved_max``.
+    """
+    if raw is None or not str(raw).strip():
+        return default
+    value = str(raw).strip()
+    if len(value) > 10 or not (value.isascii() and value.isdigit()):
+        raise ImproperlyConfigured(
+            f"{env_name} must be a positive integer of at most 10 digits; "
+            f"got {raw!r}."
+        )
+    number = int(value)
+    if number < 1:
+        raise ImproperlyConfigured(
+            f"{env_name} must be at least 1; got {number}."
+        )
+    if number > approved_max:
+        raise ImproperlyConfigured(
+            f"{env_name}={number} exceeds the approved Phase 12 limit of "
+            f"{approved_max} bytes; bounds may only be lowered."
+        )
+    return number
+
+
+def validate_audio_upload_bounds(file_bytes, body_bytes):
+    """Reject configurations where a file could exceed the body gate."""
+    if file_bytes > body_bytes:
+        raise ImproperlyConfigured(
+            "AUDIO_UPLOAD_MAX_FILE_BYTES must not exceed "
+            f"AUDIO_UPLOAD_MAX_BODY_BYTES; got file={file_bytes}, "
+            f"body={body_bytes}."
+        )
+    return file_bytes, body_bytes
+
+
+AUDIO_UPLOAD_MAX_FILE_BYTES = audio_upload_bound_from_env(
+    "AUDIO_UPLOAD_MAX_FILE_BYTES",
+    os.environ.get("AUDIO_UPLOAD_MAX_FILE_BYTES"),
+    1024 * 1024,
+    1024 * 1024,
 )
-AUDIO_UPLOAD_MAX_BODY_BYTES = int(
-    os.environ.get("AUDIO_UPLOAD_MAX_BODY_BYTES", str(1024 * 1024 + 16 * 1024))
+AUDIO_UPLOAD_MAX_BODY_BYTES = audio_upload_bound_from_env(
+    "AUDIO_UPLOAD_MAX_BODY_BYTES",
+    os.environ.get("AUDIO_UPLOAD_MAX_BODY_BYTES"),
+    1024 * 1024 + 16 * 1024,
+    1024 * 1024 + 16 * 1024,
 )
+validate_audio_upload_bounds(AUDIO_UPLOAD_MAX_FILE_BYTES, AUDIO_UPLOAD_MAX_BODY_BYTES)
 FILE_UPLOAD_MAX_MEMORY_SIZE = AUDIO_UPLOAD_MAX_BODY_BYTES
 
 # Conversation-turn rate limit (cost/abuse control, Section 26): DRF

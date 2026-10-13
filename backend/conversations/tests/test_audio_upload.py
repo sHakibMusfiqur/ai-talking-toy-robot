@@ -2,12 +2,17 @@ import asyncio
 import base64
 import json
 import logging
+import os
+import subprocess
+import sys
+from pathlib import Path
 from types import SimpleNamespace
 
 import pytest
 from django.conf import settings
 from django.contrib import staticfiles  # noqa: F401  (keep app registry happy)
 from django.core.cache import cache
+from django.core.exceptions import ImproperlyConfigured
 from django.core.files import temp as files_temp
 from django.core.files.uploadedfile import SimpleUploadedFile
 from django.test import override_settings
@@ -15,6 +20,7 @@ from rest_framework.test import APIClient
 
 from accounts.models import ChildProfile
 from config import asgi as asgi_module
+from config.settings import audio_upload_bound_from_env, validate_audio_upload_bounds
 from conversations import services
 from conversations.models import AIInteraction, Conversation, Message
 from conversations.serializers import ConversationAudioUploadSerializer
@@ -184,6 +190,114 @@ def test_settings_bounds_are_the_approved_values():
 
 
 @pytest.mark.parametrize(
+    "raw,expected",
+    [
+        (None, 1048576),
+        ("", 1048576),
+        ("   ", 1048576),
+        ("1048576", 1048576),
+        ("524288", 524288),
+        ("1", 1),
+    ],
+)
+def test_env_bound_overrides_allowed_values(raw, expected):
+    assert (
+        audio_upload_bound_from_env(
+            "AUDIO_UPLOAD_MAX_FILE_BYTES", raw, 1048576, 1048576
+        )
+        == expected
+    )
+
+
+@pytest.mark.parametrize(
+    "raw,match",
+    [
+        ("2097152", "exceeds the approved"),
+        ("1048577", "exceeds the approved"),
+        ("abc", "must be a positive integer"),
+        ("-1", "must be a positive integer"),
+        ("+5", "must be a positive integer"),
+        ("1e6", "must be a positive integer"),
+        ("１１", "must be a positive integer"),
+        ("9" * 11, "must be a positive integer"),
+        ("00000000000", "must be a positive integer"),
+        ("0", "must be at least 1"),
+    ],
+)
+def test_env_bound_overrides_reject_unsafe_values(raw, match):
+    with pytest.raises(ImproperlyConfigured, match=match):
+        audio_upload_bound_from_env(
+            "AUDIO_UPLOAD_MAX_FILE_BYTES", raw, 1048576, 1048576
+        )
+
+
+def test_validate_audio_upload_bounds_rejects_file_above_body():
+    assert validate_audio_upload_bounds(1048576, 1064960) == (1048576, 1064960)
+    with pytest.raises(ImproperlyConfigured, match="must not exceed"):
+        validate_audio_upload_bounds(1064960, 1048576)
+
+
+_STARTUP_CODE = (
+    "import os;"
+    "os.environ['DJANGO_SETTINGS_MODULE'] = 'config.settings';"
+    "import django;django.setup();"
+    "from django.conf import settings;"
+    "print(settings.AUDIO_UPLOAD_MAX_FILE_BYTES,"
+    "settings.AUDIO_UPLOAD_MAX_BODY_BYTES,"
+    "settings.FILE_UPLOAD_MAX_MEMORY_SIZE)"
+)
+
+
+def _settings_startup(extra_env):
+    """Boot config.settings in a clean subprocess with given env overrides."""
+    env = {
+        key: value
+        for key, value in os.environ.items()
+        if not key.startswith("AUDIO_UPLOAD_")
+    }
+    env.update(extra_env)
+    return subprocess.run(
+        [sys.executable, "-c", _STARTUP_CODE],
+        cwd=str(Path(__file__).resolve().parents[2]),
+        env=env,
+        capture_output=True,
+        text=True,
+        timeout=120,
+    )
+
+
+def test_env_override_above_contract_fails_startup_deterministically():
+    result = _settings_startup({"AUDIO_UPLOAD_MAX_FILE_BYTES": "2097152"})
+    assert result.returncode != 0
+    combined = result.stdout + result.stderr
+    assert "ImproperlyConfigured" in combined
+    assert "AUDIO_UPLOAD_MAX_FILE_BYTES" in combined
+    assert "exceeds the approved" in combined
+
+
+def test_env_override_may_lower_bounds_end_to_end():
+    result = _settings_startup({"AUDIO_UPLOAD_MAX_FILE_BYTES": "524288"})
+    assert result.returncode == 0, result.stderr
+    assert result.stdout.split() == ["524288", "1064960", "1064960"]
+
+
+def test_env_override_body_below_file_bound_fails_startup_deterministically():
+    result = _settings_startup({"AUDIO_UPLOAD_MAX_BODY_BYTES": "1000000"})
+    assert result.returncode != 0
+    combined = result.stdout + result.stderr
+    assert "ImproperlyConfigured" in combined
+    assert "must not exceed" in combined
+
+
+def test_env_override_non_integer_fails_startup_deterministically():
+    result = _settings_startup({"AUDIO_UPLOAD_MAX_BODY_BYTES": "abc"})
+    assert result.returncode != 0
+    combined = result.stdout + result.stderr
+    assert "ImproperlyConfigured" in combined
+    assert "must be a positive integer" in combined
+
+
+@pytest.mark.parametrize(
     "raw,expect_none",
     [
         (None, False),
@@ -200,6 +314,108 @@ def test_settings_bounds_are_the_approved_values():
 )
 def test_content_length_error_decisions(raw, expect_none):
     assert (content_length_error(raw) is None) is expect_none
+
+
+def _compact_id(value):
+    """Keep node ids short: PYTEST_CURRENT_TEST is a Windows env var and
+    cannot exceed 32767 characters, so huge digit-string params need ids."""
+    if isinstance(value, (tuple, list)):
+        parts = [_compact_id(item) for item in value]
+        joined = "-".join(part for part in parts if part)
+        return joined or None
+    if isinstance(value, str) and len(value) > 60:
+        return f"long{len(value)}"
+    if isinstance(value, bytes):
+        return "bytes"
+    return None
+
+
+@pytest.mark.parametrize(
+    "raw,expected",
+    [
+        (None, "Missing Content-Length header."),
+        ("", "Missing Content-Length header."),
+        ("   ", "Missing Content-Length header."),
+        (" 123 ", None),
+        ("0", None),
+        ("0000005", None),
+        (str(BODY_MAX_BYTES), None),
+        (
+            str(BODY_MAX_BYTES + 1),
+            "Content-Length exceeds the allowed upload size.",
+        ),
+        ("9" * 64, "Content-Length exceeds the allowed upload size."),
+        ("9" * 65, "Malformed Content-Length header."),
+        ("9" * 4300, "Malformed Content-Length header."),
+        ("9" * 100000, "Malformed Content-Length header."),
+        ("-1", "Negative Content-Length header."),
+        ("-0", "Negative Content-Length header."),
+        ("500, 600", "Duplicate or conflicting Content-Length header."),
+        ("10,10", "Duplicate or conflicting Content-Length header."),
+        ("abc", "Malformed Content-Length header."),
+        ("+5", "Malformed Content-Length header."),
+        ("5.0", "Malformed Content-Length header."),
+        ("12 34", "Malformed Content-Length header."),
+        ("1\t2", "Malformed Content-Length header."),
+        ("１２３", "Malformed Content-Length header."),
+        ("١٢٣", "Malformed Content-Length header."),
+        ("²", "Malformed Content-Length header."),
+        ("٥", "Malformed Content-Length header."),
+        (b"123", "Malformed Content-Length header."),
+    ],
+    ids=_compact_id,
+)
+def test_content_length_error_is_strict_ascii_and_never_raises(raw, expected):
+    assert content_length_error(raw) == expected
+
+
+@pytest.mark.parametrize(
+    "raw,expected",
+    [
+        (None, "Missing Content-Length header."),
+        ("", "Missing Content-Length header."),
+        ("0", None),
+        (str(BODY_MAX_BYTES), None),
+        (
+            str(BODY_MAX_BYTES + 1),
+            "Content-Length exceeds the allowed upload size.",
+        ),
+        ("-1", "Negative Content-Length header."),
+        ("500, 600", "Duplicate or conflicting Content-Length header."),
+        ("abc", "Malformed Content-Length header."),
+        ("²", "Malformed Content-Length header."),
+        ("9" * 100000, "Malformed Content-Length header."),
+    ],
+    ids=_compact_id,
+)
+def test_wsgi_and_asgi_gates_decide_identically(raw, expected):
+    """Same input, same message on both gate surfaces - the scope gate
+    only decodes headers, then delegates to content_length_error."""
+    assert content_length_error(raw) == expected
+    headers = [] if raw is None else [(b"content-length", raw.encode("latin-1"))]
+    scope = {"type": "http", "method": "POST", "path": AUDIO_URL, "headers": headers}
+    assert scope_post_error(scope) == expected
+
+
+def test_scope_gate_tolerates_str_headers_and_odd_scopes():
+    assert (
+        scope_post_error(
+            {
+                "type": "http",
+                "method": b"POST",
+                "path": AUDIO_URL.encode("ascii"),
+                "headers": [("content-length", "abc")],
+            }
+        )
+        == "Malformed Content-Length header."
+    )
+    assert scope_post_error({"type": "lifespan"}) is None
+    assert (
+        scope_post_error(
+            {"type": "http", "method": None, "path": None, "headers": None}
+        )
+        is None
+    )
 
 
 def test_scope_gate_only_targets_audio_posts():
@@ -274,8 +490,30 @@ def test_serializer_rejects_unknown_form_fields():
 
 @pytest.mark.parametrize(
     "bad_cl",
-    ["", "abc", "-1", str(BODY_MAX_BYTES + 1), "500, 600"],
-    ids=["missing", "malformed", "negative", "oversized", "duplicate"],
+    [
+        "",
+        "abc",
+        "-1",
+        str(BODY_MAX_BYTES + 1),
+        "500, 600",
+        "²",
+        "１２３",
+        "١٢٣",
+        "9" * 100000,
+        "9" * 4300,
+    ],
+    ids=[
+        "missing",
+        "malformed",
+        "negative",
+        "oversized",
+        "duplicate",
+        "unicode-superscript",
+        "unicode-fullwidth",
+        "unicode-arabic",
+        "very-long-digits",
+        "digits-over-int-limit",
+    ],
 )
 def test_bad_content_length_rejected_before_body_parsing(
     device, parse_counter, bad_cl
