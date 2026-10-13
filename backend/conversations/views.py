@@ -13,6 +13,7 @@ from .models import Conversation
 from .permissions import ConversationTurnPermission
 from .serializers import ConversationTurnSerializer
 from .services import run_conversation_turn
+from .throttles import ConversationTurnThrottle
 
 
 def _parse_id(request_data, field, *, required=True):
@@ -82,6 +83,7 @@ class ConversationTurnView(APIView):
 
     authentication_classes = [SessionAuthentication, DeviceJWTAuthentication]
     permission_classes = [ConversationTurnPermission]
+    throttle_classes = [ConversationTurnThrottle]
     http_method_names = ["post"]
 
     def post(self, request):

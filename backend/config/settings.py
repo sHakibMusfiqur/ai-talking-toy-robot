@@ -214,6 +214,17 @@ DATA_UPLOAD_MAX_MEMORY_SIZE = int(
     os.environ.get("DATA_UPLOAD_MAX_MEMORY_SIZE", str(5 * 1024 * 1024))
 )
 
+# Conversation-turn rate limit (cost/abuse control, Section 26): DRF
+# fixed-window throttle on POST /api/v1/conversations/turn/, keyed by
+# robot (device caller) or user (session caller). Rate is DRF syntax;
+# "30/min" = 30 requests per 60 seconds. In-memory and therefore
+# per-process (same limitation as ROBOT_COMMAND_COOLDOWN_SECONDS; a
+# multi-worker deployment would need a shared cache). Empty disables the
+# limiter.
+CONVERSATION_TURN_RATE_LIMIT = os.environ.get(
+    "CONVERSATION_TURN_RATE_LIMIT", "30/min"
+)
+
 # LOCAL UI TESTING ONLY (never enable in production): an explicit,
 # default-off development opt-in that lets a loopback request act as the
 # parent named by LOCAL_UI_TEST_USER_EMAIL so the server-rendered

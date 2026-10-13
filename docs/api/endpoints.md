@@ -565,7 +565,15 @@ retry loop.
 
 Errors: `401` anonymous/device-token failures (single `{"detail": ...}`
 body), `405` any method other than `POST`, plus the `400`/`404` cases
-above.
+above. `429` when the caller exceeds the conversation-turn rate limit
+(DRF default detail, e.g. `{"detail": "Request was throttled. Expected
+available in N seconds."}`, plus a `Retry-After: <seconds>` header): a
+fixed window per principal - device callers keyed by robot, session
+callers by user; anonymous
+requests are never IP-throttled (they still get `401`). The limit is
+`CONVERSATION_TURN_RATE_LIMIT` (DRF rate syntax; default `30/min` =
+30 per 60 s, per-process in-memory; empty disables) and is checked
+before ownership resolution.
 
 Raw child audio is forwarded to the AI service once and never stored:
 `Message.audio_reference` stays empty until Phase 12 defines audio

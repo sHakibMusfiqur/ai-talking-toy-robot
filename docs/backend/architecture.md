@@ -730,13 +730,38 @@ provider SDK, key, or model hosting is touched.
 7. **Audit**: parent turns are not audited (Phase 8 / Section 28
    convention); no new audit action was invented for this phase.
 
+## Conversation-turn rate limiting (implemented 2026-10-13)
+
+Closes the Phase 11 open item (was: "conversation rate limiting still
+open"). `conversations/throttles.py` adds
+`ConversationTurnThrottle(SimpleRateThrottle)` on
+`POST /api/v1/conversations/turn/` only:
+
+- Default `30` requests per `60s` (DRF rate `"30/min"`), env-configured
+  via `CONVERSATION_TURN_RATE_LIMIT` (settings + `.env.example`); an
+  empty value disables the limiter.
+- Buckets: device Bearer callers keyed `robot:<pk>`, session callers
+  keyed `user:<pk>`; anonymous requests get no cache key and are never
+  IP-throttled (authentication still returns `401`).
+- Exceeded limit: DRF default HTTP `429` (detail begins
+  `Request was throttled.` and includes the computed wait) with
+  `Retry-After`; the throttle runs before ownership resolution, so an
+  exhausted bucket returns `429` identically for owned and foreign robot
+  ids (no existence oracle).
+- Storage is the default in-memory cache: process-exact for the current
+  single-process deployment; a multi-worker deployment would need a
+  shared cache (same accepted limitation as
+  `ROBOT_COMMAND_COOLDOWN_SECONDS`). No new dependency.
+
+Phase 19 still owns the broader hardening pass (login/register/pair
+throttles, tuning, credential rotation); this change only closes the
+conversation-endpoint cost/abuse item.
+
 ## Phase 11 out of scope (unchanged later-phase boundaries)
 
 No real device audio path (Phase 12); no memory retrieval, context
 injection, or memory CRUD API (Phase 14 - write-side acceptance only); no
 conversation/safety-history read endpoints (Phase 17); no mode-specific
-pipeline (Phase 15); no conversation rate limiting yet (Section 28
-cost/abuse control still open - owner decision when to add it); no change
-to the frozen AI contract, semantic-action set, MQTT contract, device
-auth, ownership rules, or UI. AI model/provider integration remains
-explicitly on hold.
+pipeline (Phase 15); no change to the frozen AI contract, semantic-action
+set, MQTT contract, device auth, ownership rules, or UI. AI
+model/provider integration remains explicitly on hold.
