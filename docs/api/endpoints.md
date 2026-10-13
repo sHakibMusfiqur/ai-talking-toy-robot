@@ -605,7 +605,10 @@ view, for firmware clients.
   `{"conversation_id": …, "language_hint": …, "child_profile_id": …}`
   (`mode` intentionally absent). The firmware additionally enforces a
   15 s maximum recording duration at capture.
-- **`Idempotency-Key` header:** keyed per robot, retention TTL **600
+- **`Idempotency-Key` header (optional):** when absent, the request
+  proceeds normally with **no idempotent replay** (a retried request is
+  processed again as a new request). When present: keyed per robot,
+  retention TTL **600
   seconds (10 minutes)**. A duplicate with an identical payload within
   the TTL replays the stored response instead of reprocessing, and the
   replay response carries **`Idempotency-Replayed: true`**; the same
@@ -614,8 +617,9 @@ view, for firmware clients.
   single-process exact. The check runs after authentication, throttle,
   request validation, and ownership (order below).
 - **Validation order:** the header-only pre-parse `Content-Length` gate
-  (WSGI middleware / ASGI wrapper) may reject a **missing, malformed, or
-  oversized** value with `400` **before authentication** - a
+  (WSGI middleware / ASGI wrapper) may reject a **missing, malformed,
+  negative, oversized, or duplicate/conflicting `Content-Length` header**
+  with `400` **before authentication** - a
   transport-size rejection that reveals nothing about credentials, so
   not every unauthenticated audio request receives `401`. Otherwise the
   intended authenticated flow is: authentication `401` -> throttle `429`

@@ -805,9 +805,10 @@ read from the installed venv)
   scoped to the audio path. On WSGI this is a **middleware-level** gate
   that runs before dispatch and before authentication; on ASGI it is a
   wrapper in `config/asgi.py` that answers before delegating, so
-  `read_body` never runs. Missing, non-integer, or oversized (>
-  `AUDIO_UPLOAD_MAX_BODY_BYTES`) values, and chunked uploads -> `400`
-  (the firmware always sends `Content-Length`). Because this gate is
+  `read_body` never runs. A **missing, malformed (non-integer),
+  negative, oversized (> `AUDIO_UPLOAD_MAX_BODY_BYTES`), or
+  duplicate/conflicting `Content-Length` header**, and chunked uploads ->
+  `400` (the firmware always sends `Content-Length`). Because this gate is
   pre-authentication, such a request may be answered `400` **before any
   `401`** - a transport-size rejection that never reveals anything about
   credentials; do not promise that every unauthenticated audio request
@@ -822,7 +823,10 @@ read from the installed venv)
   validation `400` -> ownership `404` -> idempotency conflict/replay ->
   processing. Once past the gate, unauthenticated/throttled requests
   never reach multipart parsing.
-- Idempotency: `Idempotency-Key` keyed per robot, retention TTL **600
+- Idempotency: `Idempotency-Key` is **optional** - without it the
+  request proceeds normally with **no idempotent replay** (a retried
+  request is processed again as a new request). When present: keyed per
+  robot, retention TTL **600
   seconds (10 minutes)**, process-local locmem. An identical payload
   within the TTL replays the stored response with **`Idempotency-Replayed:
   true`**; the same robot/key with a different payload -> **`409`**.
