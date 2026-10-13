@@ -13,6 +13,13 @@ from core.audio_upload import BoundedMemoryAudioUploadHandler
 from devices.authentication import DeviceJWTAuthentication
 from devices.models import Robot
 
+from .idempotency import (
+    IdempotencyConflict,
+    execute_with_idempotency,
+    make_request_fingerprint,
+    make_storage_key,
+    validate_idempotency_key,
+)
 from .models import Conversation
 from .permissions import ConversationTurnPermission, DeviceConversationPermission
 from .serializers import (
@@ -149,12 +156,17 @@ class ConversationAudioTurnView(APIView):
     Device Bearer JWT only (sessions keep using the JSON turn endpoint);
     multipart with exactly one `audio` file plus the `Conversation-Sidecar`
     header. Validation order: pre-parse Content-Length gate (400, may run
-    before authentication - see core.audio_upload) -> 401 -> 429 -> sidecar/
-    file validation 400 -> ownership 404 -> processing. The bounded
-    in-memory upload handler is installed before the body is read, so
-    application-level handling never writes raw audio to disk; the raw
-    bytes are forwarded to the AI service once and never persisted
-    (`Message.audio_reference` stays empty).
+    before authentication - see core.audio_upload) -> 401 -> 429 -> `Idempotency-Key`
+    format / sidecar / file validation 400 -> ownership 404 -> idempotent
+    replay or 409 -> processing. The bounded in-memory upload handler is
+    installed before the body is read, so application-level handling never
+    writes raw audio to disk; the raw bytes are forwarded to the AI service
+    once and never persisted (`Message.audio_reference` stays empty).
+
+    The optional `Idempotency-Key` header (see `conversations.idempotency`
+    for the chosen format and the single-process in-memory limitation)
+    never changes the JSON endpoint, never appears in logs, and is checked
+    only after authentication/throttle/validation/ownership have passed.
     """
 
     authentication_classes = [DeviceJWTAuthentication]
@@ -163,6 +175,11 @@ class ConversationAudioTurnView(APIView):
     http_method_names = ["post"]
 
     def post(self, request):
+        idempotency_key = request.headers.get("Idempotency-Key")
+        key_error = validate_idempotency_key(idempotency_key)
+        if key_error is not None:
+            raise ValidationError({"Idempotency-Key": [key_error]})
+
         request._request.upload_handlers = [BoundedMemoryAudioUploadHandler()]
 
         sidecar = _parse_sidecar(request)
@@ -171,7 +188,8 @@ class ConversationAudioTurnView(APIView):
 
         audio_file = serializer.validated_data["audio"]
         audio_file.seek(0)
-        audio_b64 = base64.b64encode(audio_file.read()).decode("ascii")
+        audio_bytes = audio_file.read()
+        audio_b64 = base64.b64encode(audio_bytes).decode("ascii")
 
         token_robot = request.auth["robot"]
         robot, child_profile, conversation = _resolve_context(
@@ -181,13 +199,32 @@ class ConversationAudioTurnView(APIView):
             conversation_id=sidecar.get("conversation_id"),
         )
 
-        result = run_conversation_turn(
-            robot=robot,
-            child_profile=child_profile,
-            conversation=conversation,
-            text=None,
-            audio=audio_b64,
-            language_hint=sidecar.get("language_hint"),
-            mode="conversation",
+        def run_turn():
+            return run_conversation_turn(
+                robot=robot,
+                child_profile=child_profile,
+                conversation=conversation,
+                text=None,
+                audio=audio_b64,
+                language_hint=sidecar.get("language_hint"),
+                mode="conversation",
+            )
+
+        if idempotency_key is None:
+            return Response(run_turn(), status=status.HTTP_200_OK)
+
+        storage_key = make_storage_key(robot.pk, idempotency_key)
+        fingerprint = make_request_fingerprint(
+            sidecar=sidecar, audio_bytes=audio_bytes
         )
-        return Response(result, status=status.HTTP_200_OK)
+        try:
+            result, replayed = execute_with_idempotency(
+                storage_key, fingerprint, run_turn
+            )
+        except IdempotencyConflict as exc:
+            return Response({"detail": str(exc)}, status=status.HTTP_409_CONFLICT)
+
+        response = Response(result, status=status.HTTP_200_OK)
+        if replayed:
+            response["Idempotency-Replayed"] = "true"
+        return response
