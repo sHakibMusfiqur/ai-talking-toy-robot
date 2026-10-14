@@ -1,3 +1,4 @@
+#include <limits.h>
 #include <stddef.h>
 #include <stdio.h>
 
@@ -9,9 +10,26 @@ typedef struct {
     int expected;
 } case_t;
 
+typedef struct {
+    const char *name;
+    int retry_after_s;
+    int expected_wait;
+} clamp_case_t;
+
+typedef struct {
+    const char *name;
+    const char *header;
+    int expected_wait;
+} pipeline_case_t;
+
+static int parse_clamp(const char *header)
+{
+    return conv_retry_after_wait_seconds(conv_parse_retry_after(header));
+}
+
 int main(void)
 {
-    static const case_t cases[] = {
+    static const case_t parse_cases[] = {
         {"null", NULL, -1},
         {"empty", "", -1},
         {"zero", "0", 0},
@@ -32,18 +50,69 @@ int main(void)
         {"alpha", "abc", -1},
         {"mixed_alnum", "12a", -1},
         {"http_date", "Wed, 21 Oct 2026 07:28:00 GMT", -1},
-        {"overflow_edge_86401_digits", "0000000000000000086401", -1},
+        {"overflow_edge_86401_digits", "00000000000000000086401", -1},
     };
-    const size_t total = sizeof(cases) / sizeof(cases[0]);
+    static const clamp_case_t clamp_cases[] = {
+        {"invalid_minus_one", -1, 2},
+        {"zero_stays_zero", 0, 0},
+        {"one_stays_one", 1, 1},
+        {"max_allowed_30", 30, 30},
+        {"over_cap_31", 31, 2},
+        {"much_larger_valid_int", 86400, 2},
+        {"int_max", INT_MAX, 2},
+    };
+    static const pipeline_case_t pipeline_cases[] = {
+        {"null_header_uses_default", NULL, 2},
+        {"empty_header_uses_default", "", 2},
+        {"zero_header_is_zero", "0", 0},
+        {"thirty_header_is_thirty", "30", 30},
+        {"thirty_one_uses_default", "31", 2},
+        {"one_twenty_over_cap_uses_default", "120", 2},
+        {"leading_zeros_fifteen", "000015", 15},
+        {"malformed_uses_default", "abc", 2},
+        {"negative_uses_default", "-5", 2},
+        {"http_date_uses_default", "Wed, 21 Oct 2026 07:28:00 GMT", 2},
+    };
     int failures = 0;
-    for (size_t i = 0; i < total; i++) {
-        int got = conv_parse_retry_after(cases[i].input);
-        if (got != cases[i].expected) {
-            printf("FAIL %s: got %d want %d\n", cases[i].name, got,
-                   cases[i].expected);
+    const size_t parse_total = sizeof(parse_cases) / sizeof(parse_cases[0]);
+    for (size_t i = 0; i < parse_total; i++) {
+        int got = conv_parse_retry_after(parse_cases[i].input);
+        if (got != parse_cases[i].expected) {
+            printf("FAIL parse %s: got %d want %d\n", parse_cases[i].name, got,
+                   parse_cases[i].expected);
             failures++;
         }
     }
-    printf("TOTAL %zu FAILURES %d\n", total, failures);
+    printf("PARSE TOTAL %zu FAILURES %d\n", parse_total, failures);
+
+    int clamp_failures = 0;
+    const size_t clamp_total = sizeof(clamp_cases) / sizeof(clamp_cases[0]);
+    for (size_t i = 0; i < clamp_total; i++) {
+        int got = conv_retry_after_wait_seconds(clamp_cases[i].retry_after_s);
+        if (got != clamp_cases[i].expected_wait) {
+            printf("FAIL clamp %s: got %d want %d\n", clamp_cases[i].name, got,
+                   clamp_cases[i].expected_wait);
+            clamp_failures++;
+        }
+    }
+    printf("CLAMP TOTAL %zu FAILURES %d\n", clamp_total, clamp_failures);
+    failures += clamp_failures;
+
+    int pipeline_failures = 0;
+    const size_t pipeline_total =
+        sizeof(pipeline_cases) / sizeof(pipeline_cases[0]);
+    for (size_t i = 0; i < pipeline_total; i++) {
+        int got = parse_clamp(pipeline_cases[i].header);
+        if (got != pipeline_cases[i].expected_wait) {
+            printf("FAIL pipeline %s: got %d want %d\n",
+                   pipeline_cases[i].name, got,
+                   pipeline_cases[i].expected_wait);
+            pipeline_failures++;
+        }
+    }
+    printf("PIPELINE TOTAL %zu FAILURES %d\n", pipeline_total,
+           pipeline_failures);
+    failures += pipeline_failures;
+
     return failures == 0 ? 0 : 1;
 }

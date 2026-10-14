@@ -7,6 +7,8 @@
 #include "audio_capture.h"
 #include "backend_client.h"
 #include "cJSON.h"
+#include "conv_retry_after.h"
+#include "conv_string.h"
 #include "driver/gpio.h"
 #include "esp_heap_caps.h"
 #include "esp_log.h"
@@ -28,8 +30,6 @@ static const char *TAG = "conversation";
 #define CONV_UPLOAD_MAX_ATTEMPTS 3
 #define CONV_UPLOAD_DEADLINE_MS 90000
 #define CONV_RETRY_BACKOFF_BASE_MS 1000
-#define CONV_RETRY_AFTER_CAP_S 30
-#define CONV_RETRY_AFTER_DEFAULT_S 2
 
 #define CONV_RESPONSE_MAX 2048
 #define CONV_PTT_POLL_MS 20
@@ -95,8 +95,8 @@ static bool json_string_in_set(const cJSON *item, const char *const *set,
 
 static bool json_nonempty_string(const cJSON *item)
 {
-    return cJSON_IsString(item) && item->valuestring != NULL &&
-           item->valuestring[0] != '\0';
+    return cJSON_IsString(item) &&
+           conv_string_has_nonwhitespace(item->valuestring);
 }
 
 static bool object_has_exact_keys(const cJSON *obj, const char *const *keys,
@@ -106,7 +106,7 @@ static bool object_has_exact_keys(const cJSON *obj, const char *const *keys,
         return false;
     }
     for (size_t i = 0; i < n; i++) {
-        if (cJSON_GetObjectItem(obj, keys[i]) == NULL) {
+        if (cJSON_GetObjectItemCaseSensitive(obj, keys[i]) == NULL) {
             return false;
         }
     }
@@ -121,9 +121,9 @@ static bool validate_safety(const cJSON *safety)
     if (!object_has_exact_keys(safety, k_safety_fields, 3)) {
         return false;
     }
-    const cJSON *flagged = cJSON_GetObjectItem(safety, "flagged");
-    const cJSON *category = cJSON_GetObjectItem(safety, "category");
-    const cJSON *action_taken = cJSON_GetObjectItem(safety, "action_taken");
+    const cJSON *flagged = cJSON_GetObjectItemCaseSensitive(safety, "flagged");
+    const cJSON *category = cJSON_GetObjectItemCaseSensitive(safety, "category");
+    const cJSON *action_taken = cJSON_GetObjectItemCaseSensitive(safety, "action_taken");
     if (!cJSON_IsBool(flagged)) {
         return false;
     }
@@ -151,8 +151,8 @@ static bool validate_memory_writes(const cJSON *writes)
         if (!object_has_exact_keys(entry, k_memory_entry_fields, 2)) {
             return false;
         }
-        if (!json_nonempty_string(cJSON_GetObjectItem(entry, "key")) ||
-            !json_nonempty_string(cJSON_GetObjectItem(entry, "value"))) {
+        if (!json_nonempty_string(cJSON_GetObjectItemCaseSensitive(entry, "key")) ||
+            !json_nonempty_string(cJSON_GetObjectItemCaseSensitive(entry, "value"))) {
             return false;
         }
     }
@@ -171,19 +171,19 @@ static bool response_is_valid(const char *json)
     bool ok =
         object_has_exact_keys(root, k_response_fields, 8);
     if (ok) {
-        ok = json_nonempty_string(cJSON_GetObjectItem(root, "conversation_id")) &&
-             json_nonempty_string(cJSON_GetObjectItem(root, "text")) &&
-             json_string_in_set(cJSON_GetObjectItem(root, "language"),
+        ok = json_nonempty_string(cJSON_GetObjectItemCaseSensitive(root, "conversation_id")) &&
+             json_nonempty_string(cJSON_GetObjectItemCaseSensitive(root, "text")) &&
+             json_string_in_set(cJSON_GetObjectItemCaseSensitive(root, "language"),
                                 k_languages, 2) &&
-             json_string_in_set(cJSON_GetObjectItem(root, "emotion"),
+             json_string_in_set(cJSON_GetObjectItemCaseSensitive(root, "emotion"),
                                 k_emotions, 5) &&
-             json_string_in_set(cJSON_GetObjectItem(root, "action"),
+             json_string_in_set(cJSON_GetObjectItemCaseSensitive(root, "action"),
                                 k_actions, 6) &&
-             validate_safety(cJSON_GetObjectItem(root, "safety")) &&
-             (cJSON_IsNull(cJSON_GetObjectItem(root, "audio")) ||
-              json_nonempty_string(cJSON_GetObjectItem(root, "audio"))) &&
+             validate_safety(cJSON_GetObjectItemCaseSensitive(root, "safety")) &&
+             (cJSON_IsNull(cJSON_GetObjectItemCaseSensitive(root, "audio")) ||
+              json_nonempty_string(cJSON_GetObjectItemCaseSensitive(root, "audio"))) &&
              validate_memory_writes(
-                 cJSON_GetObjectItem(root, "memory_writes"));
+                 cJSON_GetObjectItemCaseSensitive(root, "memory_writes"));
     }
     cJSON_Delete(root);
     return ok;
@@ -253,10 +253,7 @@ static void run_upload(const char *sidecar, const char *idem_key,
             break;
         } else if (meta.status_code == 429) {
             fail_reason = "http_429";
-            int wait_s = meta.retry_after_s;
-            if (wait_s < 0 || wait_s > CONV_RETRY_AFTER_CAP_S) {
-                wait_s = CONV_RETRY_AFTER_DEFAULT_S;
-            }
+            int wait_s = conv_retry_after_wait_seconds(meta.retry_after_s);
             if (attempt < CONV_UPLOAD_MAX_ATTEMPTS &&
                 esp_timer_get_time() < deadline_us) {
                 vTaskDelay(pdMS_TO_TICKS((uint32_t)wait_s * 1000));

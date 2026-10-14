@@ -24,6 +24,7 @@ REQUIRED_FILES = (
     "main/backend_client.c",
     "main/backend_client.h",
     "main/conv_retry_after.h",
+    "main/conv_string.h",
     "main/robot_mqtt.c",
     "main/robot_mqtt.h",
     "main/telemetry.c",
@@ -35,6 +36,7 @@ REQUIRED_FILES = (
     "main/conversation.c",
     "main/conversation.h",
     "host_test/retry_after_harness.c",
+    "host_test/string_utils_harness.c",
 )
 
 # Security item I: patterns that disable or skip certificate validation.
@@ -506,14 +508,21 @@ def test_retry_policy_covers_status_matrix():
     assert "#define CONV_UPLOAD_MAX_ATTEMPTS 3" in source
     assert "#define CONV_UPLOAD_DEADLINE_MS" in source
     assert "retry_after_s" in source
-    assert "#define CONV_RETRY_AFTER_CAP_S 30" in source
+    assert "conv_retry_after_wait_seconds(meta.retry_after_s)" in source
+    header = _read(MAIN_DIR / "conv_retry_after.h")
+    assert "#define CONV_RETRY_AFTER_CAP_S 30" in header
+    assert "#define CONV_RETRY_AFTER_DEFAULT_S 2" in header
+    assert "#define CONV_RETRY_AFTER_CAP_S" not in source, (
+        "clamp constants live once, in the shared header"
+    )
+    assert "#define CONV_RETRY_AFTER_DEFAULT_S" not in source
 
 
 def test_response_validation_accepts_null_audio():
     source = _read(MAIN_DIR / "conversation.c")
-    assert 'cJSON_IsNull(cJSON_GetObjectItem(root, "audio"))' in source, (
-        "audio:null must be accepted"
-    )
+    assert (
+        'cJSON_IsNull(cJSON_GetObjectItemCaseSensitive(root, "audio"))' in source
+    ), "audio:null must be accepted"
     for field in (
         "conversation_id",
         "text",
@@ -657,8 +666,79 @@ def test_retry_after_host_behavior(tmp_path):
         [str(binary)], capture_output=True, text=True, timeout=60
     )
     assert run.returncode == 0, run.stdout + run.stderr
-    assert "FAILURES 0" in run.stdout, run.stdout
-    assert "TOTAL 21" in run.stdout, run.stdout
+    assert "PARSE TOTAL 21 FAILURES 0" in run.stdout, run.stdout
+    assert "CLAMP TOTAL 7 FAILURES 0" in run.stdout, run.stdout
+    assert "PIPELINE TOTAL 10 FAILURES 0" in run.stdout, run.stdout
+
+
+def test_retry_after_wait_clamp_is_shared_policy():
+    header = _read(MAIN_DIR / "conv_retry_after.h")
+    assert (
+        "static inline int conv_retry_after_wait_seconds(int retry_after_s)"
+        in header
+    )
+    assert "retry_after_s < 0 || retry_after_s > CONV_RETRY_AFTER_CAP_S" in header
+    assert "return CONV_RETRY_AFTER_DEFAULT_S;" in header
+    source = _read(MAIN_DIR / "conversation.c")
+    assert "conv_retry_after_wait_seconds(meta.retry_after_s)" in source, (
+        "the 429 branch must use the host-tested clamp helper"
+    )
+
+
+def test_string_utils_host_behavior(tmp_path):
+    compiler = shutil.which("gcc") or shutil.which("clang")
+    if compiler is None:
+        pytest.skip(
+            "no host C compiler (gcc/clang) — whitespace helper NOT TESTED"
+        )
+    harness = FIRMWARE_DIR / "host_test" / "string_utils_harness.c"
+    binary = tmp_path / "string_utils_harness"
+    compile_result = subprocess.run(
+        [
+            compiler,
+            "-std=c99",
+            "-Wall",
+            "-Wextra",
+            "-Werror",
+            "-I",
+            str(MAIN_DIR),
+            str(harness),
+            "-o",
+            str(binary),
+        ],
+        capture_output=True,
+        text=True,
+        timeout=120,
+    )
+    assert compile_result.returncode == 0, compile_result.stderr
+    run = subprocess.run(
+        [str(binary)], capture_output=True, text=True, timeout=60
+    )
+    assert run.returncode == 0, run.stdout + run.stderr
+    assert "TOTAL 17 FAILURES 0" in run.stdout, run.stdout
+
+
+def test_response_key_lookups_are_case_sensitive():
+    source = _read(MAIN_DIR / "conversation.c")
+    assert "cJSON_GetObjectItem(" not in source, (
+        "every response-field lookup must use the case-sensitive API"
+    )
+    assert (
+        source.count("cJSON_GetObjectItemCaseSensitive(") >= 15
+    ), "top-level and nested lookups all switched"
+    helper = source.split("static bool response_is_valid", 1)[1]
+    assert "cJSON_GetObjectItemCaseSensitive(root," in helper
+
+
+def test_whitespace_rejection_uses_shared_helper():
+    header = _read(MAIN_DIR / "conv_string.h")
+    for whitespace in ("' '", "'\\t'", "'\\n'", "'\\v'", "'\\f'", "'\\r'"):
+        assert whitespace in header, whitespace
+    source = _read(MAIN_DIR / "conversation.c")
+    assert "conv_string_has_nonwhitespace(item->valuestring)" in source
+    assert "item->valuestring[0] != '\\0'" not in source, (
+        "first-char-NUL check is superseded by the shared whitespace scan"
+    )
 
 
 def test_response_validation_checks_all_types_and_nested_structure():
