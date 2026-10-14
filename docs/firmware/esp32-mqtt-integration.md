@@ -212,12 +212,22 @@ Press-to-talk conversation path (no wake word, no VAD, no playback yet):
    optional `language_hint` — no `conversation_id`; the server assigns
    it), and one `Idempotency-Key` (UUIDv4) minted **per logical turn**
    and reused across every retry of that turn.
-4. Retry policy: `200` validates the 8-field response and accepts
-   `audio: null`; `400`/`404`/`409` fail immediately; `401` triggers at
-   most one token refresh + one retry; `429` honors `Retry-After`
-   (≤ 30 s); timeout / transport failure / `503` are uncertain delivery
+4. Retry policy: `200` validates the full 8-field response (exact key
+   set, per-field JSON types, frozen `language`/`emotion`/`action`/
+   safety enums, `safety` null-or-3-key object with `flagged=true`
+   requiring a non-null category, `memory_writes` array of exact
+   2-key `{key,value}` non-empty-string objects, `audio` null-or-
+   non-empty-string) and accepts `audio: null`; `400`/`404`/`409`
+   fail immediately; `401` triggers at most one token refresh + one
+   retry; `429` honors `Retry-After` (≤ 30 s, parser in
+   `conv_retry_after.h` with a pre-multiplication bound check,
+   host-tested by `firmware/host_test/retry_after_harness.c`);
+   timeout / transport failure / `503` are uncertain delivery
    and retry the **same bytes + same key**; max 3 attempts, 90 s
-   overall deadline.
+   overall deadline. (Firmware cannot cross-check the returned
+   `conversation_id` against a request value — the server assigns
+   it and the sidecar omits it — so it validates it as a
+   non-empty string only; the echo is enforced server-side.)
 5. Lifecycle events on `robots/{id}/event`:
    `audio.capture_started`, `audio.capture_completed` (byte/duration
    counts only), `audio.capture_failed`, `audio.upload_succeeded`,
@@ -257,6 +267,8 @@ profile id are configured.
 | Full path register→pair→exchange→JWT session→ingest→command→ack (`test_acceptance_path.py`, live broker) | **PASS** — automated |
 | Firmware source contract: actions, topics, payloads, QoS/retain, TLS defaults & no-bypass, no credential logs, no tracked secrets, joint limits (`test_firmware_contract.py`) | **PASS** — automated |
 | PTT MVP source contract: PSRAM/I2S config, disabled-by-default PTT/pins/profile, capture bounds, WAV header, multipart headers/sidecar, single-key retry matrix, null-audio acceptance, protected-value log scan (`test_firmware_contract.py`) | **PASS** — automated |
+| Full 8-field response validation (types, exact key sets, frozen enums mirrored from `ai_contract.py`), non-retry 400/404/409 branches, single 401 refresh, body/key reuse across retries, response-never-logged (`test_firmware_contract.py`) | **PASS** — automated (source-contract) |
+| `Retry-After` parser behavior: empty/zero/ordinary/max/over-cap/long-digit/negative/sign/space/non-digit/HTTP-date vectors against the real C code compiled on the host (`retry_after_harness.c` via gcc) | **PASS** — automated (host-runnable behavioral) |
 | Controller real-mode switch, REST-only browser, failure copy, in-flight guard (`test_real_integration.py`) | **PASS** — automated |
 | `idf.py build` of `firmware/` | **NOT TESTED** — ESP-IDF toolchain not available in this environment (test auto-skips) |
 | Physical ESP32: flash, Wi-Fi join, live broker session, real servo motion | **NOT TESTED** — no hardware in this environment |

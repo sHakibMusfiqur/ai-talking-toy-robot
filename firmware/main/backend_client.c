@@ -4,6 +4,7 @@
 #include <string.h>
 
 #include "cJSON.h"
+#include "conv_retry_after.h"
 #include "esp_app_desc.h"
 #include "esp_crt_bundle.h"
 #include "esp_http_client.h"
@@ -36,24 +37,6 @@ typedef struct {
 static char s_token[TOKEN_MAX];
 static int s_token_expires_in;
 
-static int parse_retry_after(const char *value)
-{
-    if (value == NULL || value[0] == '\0') {
-        return -1;
-    }
-    long seconds = 0;
-    for (const char *p = value; *p != '\0'; p++) {
-        if (*p < '0' || *p > '9') {
-            return -1;
-        }
-        seconds = seconds * 10 + (*p - '0');
-        if (seconds > 86400) {
-            return -1;
-        }
-    }
-    return (int)seconds;
-}
-
 static esp_err_t http_event_handler(esp_http_client_event_t *evt)
 {
     http_response_t *resp = (http_response_t *)evt->user_data;
@@ -75,7 +58,7 @@ static esp_err_t http_event_handler(esp_http_client_event_t *evt)
             return ESP_OK;
         }
         if (strcasecmp(evt->header_key, "Retry-After") == 0) {
-            resp->retry_after_s = parse_retry_after(evt->header_value);
+            resp->retry_after_s = conv_parse_retry_after(evt->header_value);
         } else if (strcasecmp(evt->header_key, "Idempotency-Replayed") == 0) {
             resp->idempotency_replayed =
                 strcasecmp(evt->header_value, "true") == 0;

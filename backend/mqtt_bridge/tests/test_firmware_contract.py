@@ -23,6 +23,7 @@ REQUIRED_FILES = (
     "main/wifi.h",
     "main/backend_client.c",
     "main/backend_client.h",
+    "main/conv_retry_after.h",
     "main/robot_mqtt.c",
     "main/robot_mqtt.h",
     "main/telemetry.c",
@@ -33,6 +34,7 @@ REQUIRED_FILES = (
     "main/audio_capture.h",
     "main/conversation.c",
     "main/conversation.h",
+    "host_test/retry_after_harness.c",
 )
 
 # Security item I: patterns that disable or skip certificate validation.
@@ -509,7 +511,9 @@ def test_retry_policy_covers_status_matrix():
 
 def test_response_validation_accepts_null_audio():
     source = _read(MAIN_DIR / "conversation.c")
-    assert "cJSON_IsNull(audio)" in source, "audio:null must be accepted"
+    assert 'cJSON_IsNull(cJSON_GetObjectItem(root, "audio"))' in source, (
+        "audio:null must be accepted"
+    )
     for field in (
         "conversation_id",
         "text",
@@ -597,6 +601,155 @@ def test_app_main_initializes_conversation_subsystem():
     source = _read(MAIN_DIR / "app_main.c")
     assert "conversation_init()" in source
     assert '#include "conversation.h"' in source
+
+
+def _c_array_literals(source, name):
+    match = re.search(
+        rf"static const char \*{name}\[\]\s*=\s*\{{(.*?)\}};", source, re.S
+    )
+    assert match, f"array {name} not found"
+    return re.findall(r'"([^"]+)"', match.group(1))
+
+
+def test_retry_after_parser_guards_before_multiplication():
+    header = _read(MAIN_DIR / "conv_retry_after.h")
+    guard = header.find("(CONV_RETRY_AFTER_MAX_S - digit) / 10")
+    multiply = header.find("seconds = seconds * 10 + digit")
+    assert guard != -1, "pre-multiplication bound check missing"
+    assert multiply != -1, "accumulator update missing"
+    assert guard < multiply, "bounds check must precede multiply/add"
+    assert "if (seconds > 86400)" not in header, (
+        "no post-hoc-only cap; the pre-check is the overflow gate"
+    )
+    client = _read(MAIN_DIR / "backend_client.c")
+    assert '#include "conv_retry_after.h"' in client
+    assert "conv_parse_retry_after" in client
+    assert "seconds * 10" not in client, "parser must have a single home"
+
+
+def test_retry_after_host_behavior(tmp_path):
+    compiler = shutil.which("gcc") or shutil.which("clang")
+    if compiler is None:
+        pytest.skip(
+            "no host C compiler (gcc/clang) — parser behavior NOT TESTED"
+        )
+    harness = FIRMWARE_DIR / "host_test" / "retry_after_harness.c"
+    binary = tmp_path / "retry_after_harness"
+    compile_result = subprocess.run(
+        [
+            compiler,
+            "-std=c99",
+            "-Wall",
+            "-Wextra",
+            "-Werror",
+            "-I",
+            str(MAIN_DIR),
+            str(harness),
+            "-o",
+            str(binary),
+        ],
+        capture_output=True,
+        text=True,
+        timeout=120,
+    )
+    assert compile_result.returncode == 0, compile_result.stderr
+    run = subprocess.run(
+        [str(binary)], capture_output=True, text=True, timeout=60
+    )
+    assert run.returncode == 0, run.stdout + run.stderr
+    assert "FAILURES 0" in run.stdout, run.stdout
+    assert "TOTAL 21" in run.stdout, run.stdout
+
+
+def test_response_validation_checks_all_types_and_nested_structure():
+    source = _read(MAIN_DIR / "conversation.c")
+    assert "object_has_exact_keys(root, k_response_fields, 8)" in source
+    assert "json_nonempty_string" in source
+    assert "json_string_in_set" in source
+    assert "cJSON_IsBool(flagged)" in source
+    assert "cJSON_IsNull(safety)" in source
+    assert "cJSON_IsArray(writes)" in source
+    assert "cJSON_IsTrue(flagged) && cJSON_IsNull(category)" in source, (
+        "flagged=true requires a non-null category"
+    )
+    assert "cJSON_GetArraySize(obj) != n" in source, (
+        "nested objects must match exact key counts"
+    )
+
+
+def test_response_enum_tables_match_backend_contract():
+    from conversations import ai_contract
+
+    source = _read(MAIN_DIR / "conversation.c")
+    expected = {
+        "k_response_fields": ai_contract.OUTPUT_FIELDS,
+        "k_languages": ai_contract.LANGUAGES,
+        "k_emotions": ai_contract.EMOTIONS,
+        "k_actions": ai_contract.ACTIONS,
+        "k_safety_categories": ai_contract.SAFETY_CATEGORIES,
+        "k_safety_actions": ai_contract.SAFETY_ACTIONS,
+        "k_safety_fields": ai_contract.SAFETY_FIELDS,
+        "k_memory_entry_fields": ai_contract.MEMORY_WRITE_FIELDS,
+    }
+    for array_name, contract_set in expected.items():
+        assert set(_c_array_literals(source, array_name)) == set(contract_set), (
+            array_name
+        )
+
+
+def test_nonretryable_statuses_break_without_retry():
+    source = _read(MAIN_DIR / "conversation.c")
+    upload_section = source.split("static void run_upload", 1)[1].split(
+        "static void run_turn", 1
+    )[0]
+    for code in ("400", "404", "409"):
+        match = re.search(
+            rf"meta\.status_code == {code}\) \{{(.*?)\}}", upload_section, re.S
+        )
+        assert match, code
+        block = match.group(1)
+        assert "break;" in block, code
+        assert "continue" not in block, f"{code} must never retry"
+
+
+def test_401_refresh_is_limited_to_one_attempt():
+    source = _read(MAIN_DIR / "conversation.c")
+    upload_section = source.split("static void run_upload", 1)[1].split(
+        "static void run_turn", 1
+    )[0]
+    match = re.search(
+        r"meta\.status_code == 401\) \{(.*?)\} else if \(meta\.status_code == 429",
+        upload_section,
+        re.S,
+    )
+    assert match, "401 branch not found"
+    block = match.group(1)
+    assert "!reauthenticated" in block
+    assert block.count("backend_refresh_token") == 1
+    assert "reauthenticated = true" in block
+
+
+def test_upload_body_and_key_are_reused_across_attempts():
+    source = _read(MAIN_DIR / "conversation.c")
+    upload_section = source.split("static void run_upload", 1)[1].split(
+        "static void run_turn", 1
+    )[0]
+    assert upload_section.count("backend_upload_audio_turn") == 1, (
+        "single call site inside the retry loop"
+    )
+    assert "(const char *)s_body_buf" in upload_section
+    assert "idem_key" in upload_section
+
+
+def test_response_body_is_never_logged():
+    identifier = re.compile(r"\bresponse\b")
+    for path in (MAIN_DIR / "conversation.c", MAIN_DIR / "backend_client.c"):
+        for number, statement in _log_statements(path):
+            without_strings = re.sub(r'"(?:[^"\\]|\\.)*"', '""', statement)
+            assert not identifier.search(without_strings), (
+                f"{path.name}:{number} logs the response buffer: "
+                f"{' '.join(statement.split())}"
+            )
 
 
 @pytest.mark.skipif(

@@ -61,6 +61,104 @@ static bool ptt_pressed(void)
     return CONFIG_ROBOT_PTT_ACTIVE_LOW ? (level == 0) : (level != 0);
 }
 
+static const char *k_response_fields[] = {
+    "conversation_id", "text",     "language",     "emotion",
+    "action",          "safety",   "audio",        "memory_writes",
+};
+static const char *k_languages[] = {"en", "bn"};
+static const char *k_emotions[] = {"HAPPY",  "CURIOUS",   "THINKING",
+                                   "CONCERNED", "NEUTRAL"};
+static const char *k_actions[] = {"WAVE", "NOD",   "TILT_HEAD", "IDLE",
+                                  "POINT", "LISTENING_RETRY"};
+static const char *k_safety_categories[] = {"PERSONAL_INFO_REQUEST",
+                                            "UNSAFE_TOPIC"};
+static const char *k_safety_actions[] = {"ALLOWED",
+                                         "REDIRECTED",
+                                         "BLOCKED",
+                                         "ALLOWED_WITH_CAUTION"};
+static const char *k_safety_fields[] = {"flagged", "category", "action_taken"};
+static const char *k_memory_entry_fields[] = {"key", "value"};
+
+static bool json_string_in_set(const cJSON *item, const char *const *set,
+                               size_t n)
+{
+    if (!cJSON_IsString(item) || item->valuestring == NULL) {
+        return false;
+    }
+    for (size_t i = 0; i < n; i++) {
+        if (strcmp(item->valuestring, set[i]) == 0) {
+            return true;
+        }
+    }
+    return false;
+}
+
+static bool json_nonempty_string(const cJSON *item)
+{
+    return cJSON_IsString(item) && item->valuestring != NULL &&
+           item->valuestring[0] != '\0';
+}
+
+static bool object_has_exact_keys(const cJSON *obj, const char *const *keys,
+                                  size_t n)
+{
+    if (!cJSON_IsObject(obj) || (size_t)cJSON_GetArraySize(obj) != n) {
+        return false;
+    }
+    for (size_t i = 0; i < n; i++) {
+        if (cJSON_GetObjectItem(obj, keys[i]) == NULL) {
+            return false;
+        }
+    }
+    return true;
+}
+
+static bool validate_safety(const cJSON *safety)
+{
+    if (cJSON_IsNull(safety)) {
+        return true;
+    }
+    if (!object_has_exact_keys(safety, k_safety_fields, 3)) {
+        return false;
+    }
+    const cJSON *flagged = cJSON_GetObjectItem(safety, "flagged");
+    const cJSON *category = cJSON_GetObjectItem(safety, "category");
+    const cJSON *action_taken = cJSON_GetObjectItem(safety, "action_taken");
+    if (!cJSON_IsBool(flagged)) {
+        return false;
+    }
+    if (!cJSON_IsNull(category) &&
+        !json_string_in_set(category, k_safety_categories, 2)) {
+        return false;
+    }
+    if (!json_string_in_set(action_taken, k_safety_actions, 4)) {
+        return false;
+    }
+    if (cJSON_IsTrue(flagged) && cJSON_IsNull(category)) {
+        return false;
+    }
+    return true;
+}
+
+static bool validate_memory_writes(const cJSON *writes)
+{
+    if (!cJSON_IsArray(writes)) {
+        return false;
+    }
+    const cJSON *entry = NULL;
+    cJSON_ArrayForEach(entry, writes)
+    {
+        if (!object_has_exact_keys(entry, k_memory_entry_fields, 2)) {
+            return false;
+        }
+        if (!json_nonempty_string(cJSON_GetObjectItem(entry, "key")) ||
+            !json_nonempty_string(cJSON_GetObjectItem(entry, "value"))) {
+            return false;
+        }
+    }
+    return true;
+}
+
 static bool response_is_valid(const char *json)
 {
     if (json == NULL || json[0] == '\0') {
@@ -70,25 +168,22 @@ static bool response_is_valid(const char *json)
     if (root == NULL) {
         return false;
     }
-    static const char *k_required[] = {
-        "conversation_id", "text", "language", "emotion",
-        "action",           "safety", "audio",   "memory_writes",
-    };
-    bool ok = true;
-    for (size_t i = 0; i < sizeof(k_required) / sizeof(k_required[0]); i++) {
-        if (cJSON_GetObjectItem(root, k_required[i]) == NULL) {
-            ok = false;
-            break;
-        }
-    }
+    bool ok =
+        object_has_exact_keys(root, k_response_fields, 8);
     if (ok) {
-        const cJSON *text = cJSON_GetObjectItem(root, "text");
-        const cJSON *audio = cJSON_GetObjectItem(root, "audio");
-        if (!cJSON_IsString(text)) {
-            ok = false;
-        } else if (!cJSON_IsNull(audio) && !cJSON_IsString(audio)) {
-            ok = false;
-        }
+        ok = json_nonempty_string(cJSON_GetObjectItem(root, "conversation_id")) &&
+             json_nonempty_string(cJSON_GetObjectItem(root, "text")) &&
+             json_string_in_set(cJSON_GetObjectItem(root, "language"),
+                                k_languages, 2) &&
+             json_string_in_set(cJSON_GetObjectItem(root, "emotion"),
+                                k_emotions, 5) &&
+             json_string_in_set(cJSON_GetObjectItem(root, "action"),
+                                k_actions, 6) &&
+             validate_safety(cJSON_GetObjectItem(root, "safety")) &&
+             (cJSON_IsNull(cJSON_GetObjectItem(root, "audio")) ||
+              json_nonempty_string(cJSON_GetObjectItem(root, "audio"))) &&
+             validate_memory_writes(
+                 cJSON_GetObjectItem(root, "memory_writes"));
     }
     cJSON_Delete(root);
     return ok;
