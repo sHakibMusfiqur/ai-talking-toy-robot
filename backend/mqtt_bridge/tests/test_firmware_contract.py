@@ -29,6 +29,10 @@ REQUIRED_FILES = (
     "main/telemetry.h",
     "main/actions.c",
     "main/actions.h",
+    "main/audio_capture.c",
+    "main/audio_capture.h",
+    "main/conversation.c",
+    "main/conversation.h",
 )
 
 # Security item I: patterns that disable or skip certificate validation.
@@ -352,6 +356,247 @@ def test_app_main_tracks_the_required_connection_states():
     ):
         assert state in source, state
     assert "backoff_next" in source, "bounded backoff missing"
+
+
+# --- Phase 12 PTT capture + bounded upload (source-contract suite) ---------
+
+PROTECTED_LOG_WORDS = (
+    "child_profile",
+    "idempotency",
+    "audio_bytes",
+    "base64",
+    "pcm_dst",
+)
+
+
+def test_firmware_psram_is_enabled_in_defaults():
+    content = _read(FIRMWARE_DIR / "sdkconfig.defaults")
+    assert "CONFIG_SPIRAM=y" in content, "PSRAM support must be enabled"
+    assert "CONFIG_SPIRAM_MODE" not in content, (
+        "PSRAM quad/octal mode must stay a local sdkconfig decision "
+        "until the physical module is confirmed"
+    )
+
+
+def test_firmware_requires_i2s_and_psram_components():
+    content = _read(MAIN_DIR / "CMakeLists.txt")
+    requires = content.split("REQUIRES", 1)[1]
+    assert re.search(r"^\s*driver\s*$", requires, re.M), "driver missing"
+    assert re.search(r"^\s*esp_psram\s*$", requires, re.M), "esp_psram missing"
+    assert '"audio_capture.c"' in content
+    assert '"conversation.c"' in content
+
+
+def test_kconfig_ptt_defaults_to_disabled():
+    kconfig = _read(MAIN_DIR / "Kconfig.projbuild")
+    match = re.search(
+        r"config ROBOT_PTT_GPIO\n.*?default (-?\d+)", kconfig, re.S
+    )
+    assert match, "ROBOT_PTT_GPIO not found"
+    assert match.group(1) == "-1", "PTT must default to disabled"
+
+
+def test_kconfig_mic_pins_default_to_unset():
+    kconfig = _read(MAIN_DIR / "Kconfig.projbuild")
+    for block in ("ROBOT_MIC_I2S_BCLK", "ROBOT_MIC_I2S_WS", "ROBOT_MIC_I2S_DIN"):
+        match = re.search(
+            rf"config {block}\n.*?default (-?\d+)", kconfig, re.S
+        )
+        assert match, f"{block} not found"
+        assert match.group(1) == "-1", f"{block} must default to unset"
+
+
+def test_kconfig_child_profile_defaults_to_empty():
+    kconfig = _read(MAIN_DIR / "Kconfig.projbuild")
+    match = re.search(
+        r'config ROBOT_CHILD_PROFILE_ID\n.*?default "(.*?)"', kconfig, re.S
+    )
+    assert match, "ROBOT_CHILD_PROFILE_ID not found"
+    assert match.group(1) == "", "profile id must default to empty"
+
+
+def test_kconfig_language_hint_defaults_to_en():
+    kconfig = _read(MAIN_DIR / "Kconfig.projbuild")
+    match = re.search(
+        r'config ROBOT_LANGUAGE_HINT\n.*?default "(.*?)"', kconfig, re.S
+    )
+    assert match, "ROBOT_LANGUAGE_HINT not found"
+    assert match.group(1) == "en"
+
+
+def test_capture_bounds_match_frozen_constants():
+    header = _read(MAIN_DIR / "audio_capture.h")
+    assert "#define AUDIO_CAPTURE_SAMPLE_RATE_HZ 16000" in header
+    assert "#define AUDIO_CAPTURE_BITS_PER_SAMPLE 16" in header
+    assert "#define AUDIO_CAPTURE_CHANNELS 1" in header
+    assert "#define AUDIO_CAPTURE_MAX_SECONDS 15" in header
+    assert "#define AUDIO_PCM_MAX_BYTES" in header
+    assert (
+        "#define AUDIO_WAV_FILE_MAX_BYTES "
+        "(AUDIO_WAV_HEADER_BYTES + AUDIO_PCM_MAX_BYTES)"
+    ) in header
+    assert 16000 * 2 * 15 == 480000
+    assert 44 + 480000 == 480044
+
+
+def test_wav_header_is_riff_pcm16le_mono_16k():
+    source = _read(MAIN_DIR / "audio_capture.c")
+    for marker in ('"RIFF"', '"WAVE"', '"fmt "', '"data"'):
+        assert marker in source, marker
+    assert "write_u16le(hdr44 + 20, 1)" in source, "PCM format tag missing"
+    assert "AUDIO_CAPTURE_SAMPLE_RATE_HZ" in source
+    assert "I2S_SLOT_MODE_MONO" in source
+    assert "I2S_DATA_BIT_WIDTH_16BIT" in source
+
+
+def test_upload_targets_frozen_audio_endpoint():
+    source = _read(MAIN_DIR / "backend_client.c")
+    assert '"/api/v1/conversations/turn/audio"' in source
+
+
+def test_multipart_headers_and_sidecar_match_contract():
+    client = _read(MAIN_DIR / "backend_client.c")
+    assert 'multipart/form-data; boundary=%s' in client
+    assert '"Conversation-Sidecar"' in client
+    assert '"Idempotency-Key"' in client
+    assert '"Authorization"' in client
+    assert '"Bearer %s"' in client, "device JWT must be sent as Bearer auth"
+    assert "s_token" in client
+    conversation = _read(MAIN_DIR / "conversation.c")
+    for part in (
+        'name=\\"audio\\"',
+        'filename=\\"clip.wav\\"',
+        "Content-Type: audio/wav",
+        "CONV_MULTIPART_BOUNDARY",
+    ):
+        assert part in conversation, part
+
+
+def test_sidecar_carries_required_child_profile_field():
+    source = _read(MAIN_DIR / "conversation.c")
+    assert '"{\\"child_profile_id\\":\\"%s\\"' in source or (
+        '\\"child_profile_id\\":\\"%s\\"' in source
+    ), "sidecar must carry child_profile_id"
+    assert '\\"language_hint\\":\\"%s\\"' in source
+
+
+def test_idempotency_key_generated_once_per_turn_and_reused():
+    source = _read(MAIN_DIR / "conversation.c")
+    assert source.count("identity_generate_uuid_v4") == 1, (
+        "exactly one key generation per logical turn"
+    )
+    upload_section = source.split("static void run_upload", 1)[1].split(
+        "static void run_turn", 1
+    )[0]
+    assert "identity_generate_uuid_v4" not in upload_section, (
+        "the retry loop must never mint a new key for the same turn"
+    )
+    assert "backend_upload_audio_turn" in upload_section
+    assert "idem_key" in upload_section
+
+
+def test_retry_policy_covers_status_matrix():
+    source = _read(MAIN_DIR / "conversation.c")
+    for code in ("400", "401", "404", "409", "429", "503", "200"):
+        assert f"meta.status_code == {code}" in source, code
+    assert "backend_refresh_token" in source, "401 must refresh once"
+    assert "reauthenticated" in source
+    assert "#define CONV_UPLOAD_MAX_ATTEMPTS 3" in source
+    assert "#define CONV_UPLOAD_DEADLINE_MS" in source
+    assert "retry_after_s" in source
+    assert "#define CONV_RETRY_AFTER_CAP_S 30" in source
+
+
+def test_response_validation_accepts_null_audio():
+    source = _read(MAIN_DIR / "conversation.c")
+    assert "cJSON_IsNull(audio)" in source, "audio:null must be accepted"
+    for field in (
+        "conversation_id",
+        "text",
+        "language",
+        "emotion",
+        "action",
+        "safety",
+        "audio",
+        "memory_writes",
+    ):
+        assert f'"{field}"' in source, field
+
+
+def test_capture_stops_on_release_and_timeout():
+    source = _read(MAIN_DIR / "conversation.c")
+    assert "ptt_pressed()" in source
+    assert "AUDIO_CAPTURE_MAX_SECONDS" in source
+
+
+def test_capture_buffer_is_psram_allocated_with_checks():
+    source = _read(MAIN_DIR / "conversation.c")
+    assert "heap_caps_malloc(needed, MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT)" in source
+    assert "s_body_buf == NULL" in source
+    assert "telemetry_publish_audio_unavailable(\"buffer_alloc\")" in source
+
+
+def test_fail_safe_on_capture_init_errors():
+    source = _read(MAIN_DIR / "conversation.c")
+    assert 'telemetry_publish_audio_capture_failed("i2s_init")' in source
+    assert '"i2s_read"' in source, "read-loop failure must carry i2s_read reason"
+    assert "capture_fail" in source
+    assert "audio_capture_deinit()" in source
+    capture = _read(MAIN_DIR / "audio_capture.c")
+    assert "i2s_del_channel" in capture
+    assert "ESP_ERR_INVALID_STATE" in capture
+
+
+def test_audio_events_are_published_with_safe_payloads():
+    telemetry = _read(MAIN_DIR / "telemetry.c")
+    for event in (
+        "audio.capture_started",
+        "audio.capture_completed",
+        "audio.capture_failed",
+        "audio.upload_succeeded",
+        "audio.upload_failed",
+        "audio.unavailable",
+    ):
+        assert f'"{event}"' in telemetry, event
+    conversation = _read(MAIN_DIR / "conversation.c")
+    for publisher in (
+        "telemetry_publish_audio_capture_started",
+        "telemetry_publish_audio_capture_completed",
+        "telemetry_publish_audio_capture_failed",
+        "telemetry_publish_audio_upload_succeeded",
+        "telemetry_publish_audio_upload_failed",
+        "telemetry_publish_audio_unavailable",
+    ):
+        assert publisher in conversation, publisher
+
+
+def test_conversation_never_logs_protected_values():
+    """PTT MVP addition on top of the credential scanner: child profile
+    ids, idempotency keys, and audio material must never reach a log
+    statement. Same statement-level scanner as the credential test."""
+    for path in _c_sources():
+        for number, statement in _log_statements(path):
+            lowered = statement.lower()
+            for word in PROTECTED_LOG_WORDS:
+                assert word not in lowered, (
+                    f"{path.name}:{number} log statement contains "
+                    f"protected word '{word}': {' '.join(statement.split())}"
+                )
+
+
+def test_upload_enforces_bounds_before_send():
+    client = _read(MAIN_DIR / "backend_client.c")
+    assert "body_len > CONV_UPLOAD_MAX_BODY_BYTES" in client
+    assert "#define CONV_UPLOAD_MAX_BODY_BYTES (1024 * 1024 + 16 * 1024)" in client
+    conversation = _read(MAIN_DIR / "conversation.c")
+    assert "file_len > CONV_UPLOAD_MAX_FILE_BYTES" in conversation
+    assert "total > CONV_UPLOAD_MAX_BODY_BYTES" in conversation
+
+
+def test_app_main_initializes_conversation_subsystem():
+    source = _read(MAIN_DIR / "app_main.c")
+    assert "conversation_init()" in source
+    assert '#include "conversation.h"' in source
 
 
 @pytest.mark.skipif(

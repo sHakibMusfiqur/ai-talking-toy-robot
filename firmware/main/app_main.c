@@ -4,6 +4,7 @@
 
 #include "actions.h"
 #include "backend_client.h"
+#include "conversation.h"
 #include "esp_log.h"
 #include "esp_timer.h"
 #include "freertos/FreeRTOS.h"
@@ -136,6 +137,10 @@ void app_main(void)
 
     ensure_registered();
     ensure_token();
+
+    if (conversation_init() != ESP_OK) {
+        ESP_LOGW(TAG, "conversation capture unavailable");
+    }
 
     uint32_t backoff_ms = BACKOFF_MIN_MS;
     int64_t token_refreshed_at = esp_timer_get_time();

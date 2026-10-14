@@ -14,3 +14,4 @@ void identity_set_registered(bool registered);
 esp_err_t identity_sign_challenge(const char *challenge, size_t challenge_len,
                                   char *sig_b64, size_t sig_b64_len,
                                   size_t *written);
+void identity_generate_uuid_v4(char *out, size_t out_len);

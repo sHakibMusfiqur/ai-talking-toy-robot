@@ -19,16 +19,40 @@ static const char *TAG = "backend_client";
 #define CHALLENGE_ID_MAX 64
 #define SIGNATURE_B64_MAX 256
 
+#define CONV_AUDIO_UPLOAD_PATH "/api/v1/conversations/turn/audio"
+#define CONV_UPLOAD_MAX_BODY_BYTES (1024 * 1024 + 16 * 1024)
+#define CONV_UPLOAD_TIMEOUT_MS 20000
+
 typedef struct {
     char *buf;
     size_t cap;
     size_t len;
     int status_code;
     bool overflow;
+    bool idempotency_replayed;
+    int retry_after_s;
 } http_response_t;
 
 static char s_token[TOKEN_MAX];
 static int s_token_expires_in;
+
+static int parse_retry_after(const char *value)
+{
+    if (value == NULL || value[0] == '\0') {
+        return -1;
+    }
+    long seconds = 0;
+    for (const char *p = value; *p != '\0'; p++) {
+        if (*p < '0' || *p > '9') {
+            return -1;
+        }
+        seconds = seconds * 10 + (*p - '0');
+        if (seconds > 86400) {
+            return -1;
+        }
+    }
+    return (int)seconds;
+}
 
 static esp_err_t http_event_handler(esp_http_client_event_t *evt)
 {
@@ -46,6 +70,16 @@ static esp_err_t http_event_handler(esp_http_client_event_t *evt)
         resp->buf[resp->len] = '\0';
     } else if (evt->event_id == HTTP_EVENT_ON_FINISH) {
         resp->status_code = esp_http_client_get_status_code(evt->client);
+    } else if (evt->event_id == HTTP_EVENT_HEADERS) {
+        if (evt->header_key == NULL || evt->header_value == NULL) {
+            return ESP_OK;
+        }
+        if (strcasecmp(evt->header_key, "Retry-After") == 0) {
+            resp->retry_after_s = parse_retry_after(evt->header_value);
+        } else if (strcasecmp(evt->header_key, "Idempotency-Replayed") == 0) {
+            resp->idempotency_replayed =
+                strcasecmp(evt->header_value, "true") == 0;
+        }
     }
     return ESP_OK;
 }
@@ -77,6 +111,8 @@ static esp_err_t post_json(const char *path, const char *body, int *status_out,
         .len = 0,
         .status_code = 0,
         .overflow = false,
+        .idempotency_replayed = false,
+        .retry_after_s = -1,
     };
     if (resp_out != NULL && resp_out_len > 0) {
         resp_out[0] = '\0';
@@ -283,4 +319,107 @@ const char *backend_device_token(void)
 int backend_token_expires_in(void)
 {
     return s_token_expires_in;
+}
+
+esp_err_t backend_upload_audio_turn(const char *body, size_t body_len,
+                                    const char *boundary,
+                                    const char *sidecar_json,
+                                    const char *idempotency_key,
+                                    char *resp_out, size_t resp_out_len,
+                                    backend_audio_upload_meta_t *meta)
+{
+    if (meta != NULL) {
+        meta->status_code = 0;
+        meta->transport_failed = false;
+        meta->response_overflow = false;
+        meta->idempotency_replayed = false;
+        meta->retry_after_s = -1;
+    }
+    if (body == NULL || body_len == 0 || body_len > CONV_UPLOAD_MAX_BODY_BYTES ||
+        boundary == NULL || sidecar_json == NULL) {
+        return ESP_ERR_INVALID_ARG;
+    }
+
+    char url[256];
+    esp_err_t err = build_url(url, sizeof(url), CONV_AUDIO_UPLOAD_PATH);
+    if (err != ESP_OK) {
+        return err;
+    }
+
+    char content_type[128];
+    int written = snprintf(content_type, sizeof(content_type),
+                           "multipart/form-data; boundary=%s", boundary);
+    if (written <= 0 || (size_t)written >= sizeof(content_type)) {
+        return ESP_ERR_INVALID_SIZE;
+    }
+
+    http_response_t resp = {
+        .buf = resp_out,
+        .cap = resp_out_len,
+        .len = 0,
+        .status_code = 0,
+        .overflow = false,
+        .idempotency_replayed = false,
+        .retry_after_s = -1,
+    };
+    if (resp_out != NULL && resp_out_len > 0) {
+        resp_out[0] = '\0';
+    }
+
+    esp_http_client_config_t cfg = {
+        .url = url,
+        .method = HTTP_METHOD_POST,
+        .event_handler = http_event_handler,
+        .user_data = &resp,
+        .timeout_ms = CONV_UPLOAD_TIMEOUT_MS,
+        .buffer_size = 2048,
+    };
+    if (CONFIG_ROBOT_BACKEND_USE_TLS) {
+        if (strlen(CONFIG_ROBOT_BACKEND_CA_PEM) > 0) {
+            cfg.cert_pem = CONFIG_ROBOT_BACKEND_CA_PEM;
+        } else {
+            cfg.crt_bundle_attach = esp_crt_bundle_attach;
+        }
+    } else {
+        ESP_LOGW(TAG, "backend TLS disabled (lab mode only)");
+    }
+
+    esp_http_client_handle_t client = esp_http_client_init(&cfg);
+    if (client == NULL) {
+        return ESP_ERR_NO_MEM;
+    }
+
+    char auth_header[TOKEN_MAX + 16];
+    snprintf(auth_header, sizeof(auth_header), "Bearer %s", s_token);
+    esp_http_client_set_header(client, "Authorization", auth_header);
+    esp_http_client_set_header(client, "Content-Type", content_type);
+    esp_http_client_set_header(client, "Conversation-Sidecar", sidecar_json);
+    if (idempotency_key != NULL && idempotency_key[0] != '\0') {
+        esp_http_client_set_header(client, "Idempotency-Key", idempotency_key);
+    }
+    esp_http_client_set_post_field(client, body, (int)body_len);
+
+    err = esp_http_client_perform(client);
+    memset(auth_header, 0, sizeof(auth_header));
+    if (err != ESP_OK) {
+        ESP_LOGW(TAG, "audio upload transport failed (%s)",
+                 esp_err_to_name(err));
+        esp_http_client_cleanup(client);
+        if (meta != NULL) {
+            meta->transport_failed = true;
+        }
+        return err;
+    }
+
+    if (meta != NULL) {
+        meta->status_code = resp.status_code;
+        meta->response_overflow = resp.overflow;
+        meta->idempotency_replayed = resp.idempotency_replayed;
+        meta->retry_after_s = resp.retry_after_s;
+    }
+    if (resp.overflow) {
+        ESP_LOGW(TAG, "audio upload response exceeded buffer");
+    }
+    esp_http_client_cleanup(client);
+    return ESP_OK;
 }

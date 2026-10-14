@@ -57,4 +57,36 @@ menu "RoboPanel Robot"
         range 10 3600
         default 60
 
+    config ROBOT_PTT_GPIO
+        int "Push-to-talk button GPIO (-1 = disabled)"
+        range -1 48
+        default -1
+
+    config ROBOT_PTT_ACTIVE_LOW
+        bool "PTT button is active-low (pressed = low, internal pull-up)"
+        default y
+
+    config ROBOT_MIC_I2S_BCLK
+        int "I2S microphone bit-clock (BCLK) GPIO (-1 = unset, capture disabled)"
+        range -1 48
+        default -1
+
+    config ROBOT_MIC_I2S_WS
+        int "I2S microphone word-select (WS) GPIO (-1 = unset, capture disabled)"
+        range -1 48
+        default -1
+
+    config ROBOT_MIC_I2S_DIN
+        int "I2S microphone data-in (DIN) GPIO (-1 = unset, capture disabled)"
+        range -1 48
+        default -1
+
+    config ROBOT_CHILD_PROFILE_ID
+        string "Child profile id for conversation turns (local sdkconfig only - never commit a real value)"
+        default ""
+
+    config ROBOT_LANGUAGE_HINT
+        string "Conversation language hint (en, bn, or auto)"
+        default "en"
+
 endmenu

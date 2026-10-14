@@ -39,7 +39,7 @@ static int rng_cb(void *ctx, unsigned char *out, size_t len)
     return mbedtls_ctr_drbg_random(&s_drbg, out, len) == 0 ? 0 : -1;
 }
 
-static void generate_uuid_v4(char *out, size_t out_len)
+void identity_generate_uuid_v4(char *out, size_t out_len)
 {
     uint8_t b[16];
     esp_fill_random(b, sizeof(b));
@@ -109,7 +109,7 @@ esp_err_t identity_init(void)
         memset(priv_pem, 0, sizeof(priv_pem));
         ESP_LOGI(TAG, "identity loaded from NVS");
     } else {
-        generate_uuid_v4(s_device_id, sizeof(s_device_id));
+        identity_generate_uuid_v4(s_device_id, sizeof(s_device_id));
 
         int rc = mbedtls_pk_setup(&s_pk,
                                   mbedtls_pk_info_from_type(MBEDTLS_PK_ECKEY));

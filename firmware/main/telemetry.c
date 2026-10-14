@@ -116,6 +116,52 @@ void telemetry_publish_mqtt_disconnected(void)
     s_pending_mqtt_disconnected = true;
 }
 
+void telemetry_publish_audio_capture_started(void)
+{
+    publish_event("audio.capture_started", "{}");
+}
+
+void telemetry_publish_audio_capture_completed(uint32_t pcm_bytes,
+                                               uint32_t duration_ms)
+{
+    char payload[96];
+    snprintf(payload, sizeof(payload), "{\"bytes\":%lu,\"duration_ms\":%lu}",
+             (unsigned long)pcm_bytes, (unsigned long)duration_ms);
+    publish_event("audio.capture_completed", payload);
+}
+
+void telemetry_publish_audio_capture_failed(const char *reason)
+{
+    char payload[80];
+    snprintf(payload, sizeof(payload), "{\"reason\":\"%s\"}",
+             reason != NULL ? reason : "unknown");
+    publish_event("audio.capture_failed", payload);
+}
+
+void telemetry_publish_audio_upload_succeeded(int attempts, bool replayed)
+{
+    char payload[64];
+    snprintf(payload, sizeof(payload), "{\"attempts\":%d,\"replayed\":%s}",
+             attempts, replayed ? "true" : "false");
+    publish_event("audio.upload_succeeded", payload);
+}
+
+void telemetry_publish_audio_upload_failed(const char *reason)
+{
+    char payload[80];
+    snprintf(payload, sizeof(payload), "{\"reason\":\"%s\"}",
+             reason != NULL ? reason : "unknown");
+    publish_event("audio.upload_failed", payload);
+}
+
+void telemetry_publish_audio_unavailable(const char *reason)
+{
+    char payload[80];
+    snprintf(payload, sizeof(payload), "{\"reason\":\"%s\"}",
+             reason != NULL ? reason : "unknown");
+    publish_event("audio.unavailable", payload);
+}
+
 static void status_task(void *arg)
 {
     (void)arg;

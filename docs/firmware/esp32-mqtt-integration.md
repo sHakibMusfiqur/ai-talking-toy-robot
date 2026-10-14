@@ -54,7 +54,9 @@ firmware/
     ├── backend_client.c/.h register / challenge / token over HTTPS
     ├── robot_mqtt.c/.h     broker session, LWT, exact subscriptions, publish helpers
     ├── telemetry.c/.h      heartbeat + status tasks, lifecycle events, status state
-    └── actions.c/.h        frozen semantic whitelist, joint limits, move programs
+    ├── actions.c/.h        frozen semantic whitelist, joint limits, move programs
+    ├── audio_capture.c/.h  I2S-std mic capture, 15 s / 480,044 B WAV bound, PSRAM buffer user
+    └── conversation.c/.h   PTT task, single-buffer multipart build, upload retry policy
 ```
 
 ## 3. Build & flash
@@ -90,6 +92,11 @@ untracked local `sdkconfig` (or `sdkconfig.local`), never into git.
 | `ROBOT_MQTT_KEEPALIVE_S` | 30 | |
 | `ROBOT_HEARTBEAT_INTERVAL_S` | 30 | 5–300 |
 | `ROBOT_STATUS_INTERVAL_S` | 60 | 10–3600 |
+| `ROBOT_PTT_GPIO` | **-1 (disabled)** | push-to-talk button GPIO; set locally to enable capture |
+| `ROBOT_PTT_ACTIVE_LOW` | y | pressed = low, internal pull-up |
+| `ROBOT_MIC_I2S_BCLK` / `_WS` / `_DIN` | -1 (unset) | I2S mic pins; capture stays disabled until all three are set for the actual board |
+| `ROBOT_CHILD_PROFILE_ID` | empty | local sdkconfig only — never committed, never logged; empty disables capture |
+| `ROBOT_LANGUAGE_HINT` | `en` | `en` / `bn` / `auto`; anything else is omitted from the sidecar |
 
 Security invariants enforced in code and by tests:
 
@@ -191,7 +198,45 @@ if the two ever diverge.
    command is in flight. (`data-service-mode="mock"` keeps the
    self-contained preview used before hardware existed.)
 
-## 10. Troubleshooting
+## 10. PTT capture & audio upload (Phase 12 MVP)
+
+Press-to-talk conversation path (no wake word, no VAD, no playback yet):
+
+1. Button press on `ROBOT_PTT_GPIO` (debounced) starts capture.
+2. I2S-std mono PCM16LE @ 16 kHz fills a **single PSRAM buffer** laid out
+   as one multipart body: boundary headers + provisional 44-byte WAV
+   header + PCM + closing boundary. Hard stops at **15 s / 480,044 B**
+   (file) — release, timeout, I2S error or bounds failure all stop safely.
+3. `POST /api/v1/conversations/turn/audio` (no trailing slash) with the
+   device JWT, `Conversation-Sidecar` (`child_profile_id` +
+   optional `language_hint` — no `conversation_id`; the server assigns
+   it), and one `Idempotency-Key` (UUIDv4) minted **per logical turn**
+   and reused across every retry of that turn.
+4. Retry policy: `200` validates the 8-field response and accepts
+   `audio: null`; `400`/`404`/`409` fail immediately; `401` triggers at
+   most one token refresh + one retry; `429` honors `Retry-After`
+   (≤ 30 s); timeout / transport failure / `503` are uncertain delivery
+   and retry the **same bytes + same key**; max 3 attempts, 90 s
+   overall deadline.
+5. Lifecycle events on `robots/{id}/event`:
+   `audio.capture_started`, `audio.capture_completed` (byte/duration
+   counts only), `audio.capture_failed`, `audio.upload_succeeded`,
+   `audio.upload_failed`, `audio.unavailable` (reason vocab only —
+   never profile ids, keys, tokens or audio).
+
+Privacy & bounds invariants: raw PCM never leaves the PSRAM buffer
+unencrypted (TLS on by default), never reaches NVS, serial logs or
+events; the idempotency key and profile id are never logged; bounds are
+checked at capture, at buffer layout and again before the HTTP send.
+
+Unresolved hardware configuration (must be set locally, never guessed):
+I2S pin mapping for the actual mic/board, PSRAM quad-vs-octal mode for
+the physical module (`CONFIG_SPIRAM=y` is on in tracked defaults; the
+mode stays a local `sdkconfig` decision), and the mic model's expected
+I2S role/slot details. Capture stays **disabled** until pins and
+profile id are configured.
+
+## 11. Troubleshooting
 
 | Symptom | Likely cause | Check |
 |---|---|---|
@@ -204,13 +249,15 @@ if the two ever diverge.
 | Commands never arrive | device not subscribed / wrong id | serial log after connect; `mosquitto_sub -t 'robots/+/command'` |
 | Robot shows offline in UI | LWT fired or heartbeats stopped | serial log; status topic retention |
 
-## 11. Verification status
+## 12. Verification status
 
 | Item | Status |
 |---|---|
 | Backend MQTT contract, ACL, LWT, ingestion, publisher, provisioning (Phase 8 suite) | **PASS** — automated |
 | Full path register→pair→exchange→JWT session→ingest→command→ack (`test_acceptance_path.py`, live broker) | **PASS** — automated |
 | Firmware source contract: actions, topics, payloads, QoS/retain, TLS defaults & no-bypass, no credential logs, no tracked secrets, joint limits (`test_firmware_contract.py`) | **PASS** — automated |
+| PTT MVP source contract: PSRAM/I2S config, disabled-by-default PTT/pins/profile, capture bounds, WAV header, multipart headers/sidecar, single-key retry matrix, null-audio acceptance, protected-value log scan (`test_firmware_contract.py`) | **PASS** — automated |
 | Controller real-mode switch, REST-only browser, failure copy, in-flight guard (`test_real_integration.py`) | **PASS** — automated |
 | `idf.py build` of `firmware/` | **NOT TESTED** — ESP-IDF toolchain not available in this environment (test auto-skips) |
 | Physical ESP32: flash, Wi-Fi join, live broker session, real servo motion | **NOT TESTED** — no hardware in this environment |
+| I2S mic capture, PTT button, PSRAM allocation, live audio upload to Django | **NOT TESTED** — requires flashed ESP32-S3 + configured pins/profile; build itself also NOT TESTED here |

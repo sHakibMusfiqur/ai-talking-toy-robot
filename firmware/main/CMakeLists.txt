@@ -7,6 +7,8 @@ idf_component_register(
         "robot_mqtt.c"
         "telemetry.c"
         "actions.c"
+        "audio_capture.c"
+        "conversation.c"
     INCLUDE_DIRS "."
     REQUIRES
         mbedtls
@@ -20,4 +22,6 @@ idf_component_register(
         json
         app_update
         esp_system
+        driver
+        esp_psram
 )
