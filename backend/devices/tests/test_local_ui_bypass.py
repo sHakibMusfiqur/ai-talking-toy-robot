@@ -1,8 +1,10 @@
 import uuid
+from pathlib import Path
 
 import pytest
 from accounts.models import Parent
 from accounts.services import create_parent_account
+from core import local_ui_bypass as bypass_mod
 from devices.models import Robot
 from django.test import override_settings
 from rest_framework.test import APIClient
@@ -231,3 +233,103 @@ def test_default_settings_have_bypass_disabled():
 
     assert settings.LOCAL_UI_TEST_BYPASS is False
     assert settings.LOCAL_UI_TEST_USER_EMAIL == ""
+
+
+# --- Docker-published-port clients (bridge gateway, not loopback) ---------
+
+
+def test_docker_gateway_client_is_treated_as_local(bypass_parent, monkeypatch):
+    monkeypatch.setattr(bypass_mod, "_default_gateway", lambda: "172.20.0.1")
+    _robot(bypass_parent, nickname="GatewayBotty")
+    with _settings_on():
+        response = APIClient().get("/dashboard/", REMOTE_ADDR="172.20.0.1")
+    assert response.status_code == 200
+    assert "GatewayBotty" in response.content.decode()
+
+
+def test_non_gateway_client_still_requires_loopback(bypass_parent, monkeypatch):
+    monkeypatch.setattr(bypass_mod, "_default_gateway", lambda: "172.20.0.1")
+    with _settings_on():
+        response = APIClient().get("/dashboard/", REMOTE_ADDR="172.20.0.99")
+    assert response.status_code == 302
+    assert response.url.startswith("/login/")
+
+
+def test_gateway_client_cannot_use_api_even_under_bypass(bypass_parent, monkeypatch):
+    # Even the gateway-accepted local client is refused on /api/ - the
+    # bypass stays view-only for server-rendered pages (Phase A F-05).
+    robot = _robot(bypass_parent)
+    monkeypatch.setattr(bypass_mod, "_default_gateway", lambda: "172.20.0.1")
+    with _settings_on():
+        response = APIClient().get(
+            f"/api/v1/devices/{robot.pk}/state/", REMOTE_ADDR="172.20.0.1"
+        )
+    assert response.status_code == 401
+
+
+# --- Frontend marker: the login redirect is gated, not removed ------------
+
+
+def test_bypass_marker_meta_renders_for_bypass_identity(bypass_parent):
+    _robot(bypass_parent, nickname="MetaBotty")
+    with _settings_on():
+        html = APIClient().get("/dashboard/").content.decode()
+    assert '<meta name="local-ui-bypass" content="1">' in html
+    assert "MetaBotty" in html
+
+
+def test_bypass_marker_meta_absent_without_opt_in(bypass_parent):
+    with override_settings(
+        DEBUG=True,
+        LOCAL_UI_TEST_BYPASS=False,
+        LOCAL_UI_TEST_USER_EMAIL=BYPASS_EMAIL,
+    ):
+        html = APIClient().get("/login/").content.decode()
+    assert 'name="local-ui-bypass"' not in html
+    with override_settings(
+        DEBUG=False,
+        LOCAL_UI_TEST_BYPASS=True,
+        LOCAL_UI_TEST_USER_EMAIL=BYPASS_EMAIL,
+    ):
+        html = APIClient().get("/login/").content.decode()
+    assert 'name="local-ui-bypass"' not in html
+
+
+def test_bypass_marker_meta_absent_for_real_session(bypass_parent, api_client):
+    # A real login session never gets the bypass marker, so api.js keeps
+    # its normal session-expiry redirect for it.
+    setup_parent(api_client, "meta-real-session@example.com")
+    with _settings_on():
+        response = api_client.get("/dashboard/")
+    assert response.status_code == 200
+    assert 'name="local-ui-bypass"' not in response.content.decode()
+
+
+# --- Local wiring: the opt-in must reach the container --------------------
+
+
+def _repo_root():
+    return Path(__file__).resolve().parents[3]
+
+
+def test_compose_forwards_bypass_flags_with_default_off():
+    compose_path = _repo_root() / "infra" / "docker-compose.yml"
+    compose = compose_path.read_text(encoding="utf-8")
+    assert "LOCAL_UI_TEST_BYPASS: ${LOCAL_UI_TEST_BYPASS:-false}" in compose
+    assert "LOCAL_UI_TEST_USER_EMAIL: ${LOCAL_UI_TEST_USER_EMAIL:-}" in compose
+
+
+def test_env_example_documents_bypass_keys():
+    example = (_repo_root() / ".env.example").read_text(encoding="utf-8")
+    assert "LOCAL_UI_TEST_BYPASS=false" in example
+    assert "LOCAL_UI_TEST_USER_EMAIL=" in example
+
+
+def test_api_js_login_redirect_gated_by_bypass_marker():
+    api_js = (_repo_root() / "backend" / "static" / "js" / "api.js").read_text(
+        encoding="utf-8"
+    )
+    assert 'meta[name="local-ui-bypass"]' in api_js
+    assert "BYPASS_META" in api_js
+    # Exactly one auto-redirect exists and it sits inside the gate.
+    assert api_js.count('window.location.assign("/login/?next=" + next)') == 1

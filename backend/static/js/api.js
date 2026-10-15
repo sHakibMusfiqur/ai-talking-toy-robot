@@ -4,6 +4,9 @@
   var meta = document.querySelector('meta[name="csrf-token"]');
   var CSRF_TOKEN = meta ? meta.getAttribute("content") : "";
 
+ 
+  var BYPASS_META = document.querySelector('meta[name="local-ui-bypass"]');
+
   function friendlyMessage(status) {
     if (!status) return "Network problem — check your connection and try again.";
     if (status === 401) return "Your session has expired. Please sign in again.";
@@ -27,10 +30,12 @@
     return fetch(path, init).then(
       function (response) {
         if (response.status === 401) {
-          var next = encodeURIComponent(
-            window.location.pathname + window.location.search
-          );
-          window.location.assign("/login/?next=" + next);
+          if (!BYPASS_META) {
+            var next = encodeURIComponent(
+              window.location.pathname + window.location.search
+            );
+            window.location.assign("/login/?next=" + next);
+          }
           throw { status: 401, message: friendlyMessage(401) };
         }
         return response
