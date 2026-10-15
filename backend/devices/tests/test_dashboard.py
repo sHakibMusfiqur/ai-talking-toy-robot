@@ -7,6 +7,7 @@ from pathlib import Path
 import pytest
 from configuration.models import Configuration
 from devices.models import Robot, RobotState
+from devices.services import PAIRING_CODE_ALPHABET
 from django.utils import timezone
 from rest_framework.test import APIClient
 
@@ -18,13 +19,7 @@ FORBIDDEN_HARDWARE_TERMS = ("servo", "pwm", "gpio", "motor", "voltage")
 
 
 class _VisibleTextExtractor(HTMLParser):
-    """Extract user-visible text nodes from rendered HTML.
 
-    Attribute values are never inspected — they carry dynamic identifiers,
-    CSRF tokens and URLs, which are data, not UI copy. <head>, <script>
-    and <style> content is skipped for the same reason (the authored copy
-    itself is covered by the raw-template scan in the terminology test).
-    """
 
     _NON_VISIBLE = {"head", "script", "style"}
 
@@ -599,3 +594,85 @@ def test_pairing_success_copy_does_not_claim_online():
     block = source[start:end].lower()
     assert "robot paired" in block
     assert "online" not in block
+
+
+def test_connect_dialog_alphabet_hint_matches_backend(api_client, parent):
+    # The documented alphabet must stay locked to the backend constant:
+    # if the constant ever changes, this test fails and the hint needs an update.
+    letters = [
+        c for c in "ABCDEFGHIJKLMNOPQRSTUVWXYZ" if c not in PAIRING_CODE_ALPHABET
+    ]
+    assert letters == ["I", "L", "O"]
+    assert [c for c in PAIRING_CODE_ALPHABET if c.isdigit()] == list("23456789")
+    assert len(PAIRING_CODE_ALPHABET) == 31
+
+    html = api_client.get("/dashboard/").content.decode()
+    for marker in (
+        "A-Z",
+        "except I, L, and O",
+        "digits 2-9",
+        "single-use",
+        "15 minutes",
+        "Shown once",
+    ):
+        assert marker in html, marker
+
+
+def test_connect_dialog_progress_status_element(api_client, parent):
+    html = api_client.get("/dashboard/").content.decode()
+    assert 'id="connect-progress"' in html
+    assert 'role="status"' in html
+    assert "still in progress" in html
+
+
+def test_dashboard_pairing_inflight_guard_source_contract():
+    """Source-contract pins for the single-flight guard (no JS runtime exists
+    in this suite; the guard's runtime behaviour is verified separately by a
+    one-off Node harness during the implementation session - not in CI)."""
+    js = (
+        Path(__file__).resolve().parents[2] / "static" / "js" / "dashboard.js"
+    ).read_text(encoding="utf-8")
+
+    submit_at = js.find('connectForm.addEventListener("submit"')
+    assert submit_at != -1
+    submit_block = js[submit_at:]
+
+    # The guard is checked and set synchronously before the API call.
+    assert "if (pairRequestActive) return;" in submit_block
+    assert submit_block.index("pairRequestActive = true") < submit_block.index(
+        "window.RobotAPI.pair("
+    )
+
+    # Exactly one guard release (inside finish, not the var declaration),
+    # invoked by both callbacks.
+    release_count = js.count("pairRequestActive = false") - js.count(
+        "var pairRequestActive = false"
+    )
+    assert release_count == 1
+    assert submit_block.count("finish();") == 2
+
+    # Both callbacks drop stale responses via the generation token.
+    assert submit_block.count("generation !== pairGeneration") == 2
+
+    # Dialog reset is presentation-only: it must never clear the guard.
+    reset_at = js.find("var resetDialog = function")
+    close_at = js.find("var closeDialog")
+    assert reset_at != -1 and close_at > reset_at
+    reset_block = js[reset_at:close_at]
+    assert "pairRequestActive" not in reset_block
+    assert "pairGeneration" not in reset_block
+
+    # Reopening during a pending request re-applies the busy UI + progress.
+    open_at = js.find('querySelectorAll("[data-connect-open]")')
+    assert open_at != -1
+    open_block = js[open_at : js.find("querySelectorAll(\"[data-connect-close]\")")]
+    assert "if (pairRequestActive)" in open_block
+    assert "progressBox.hidden = false" in open_block
+    assert "!codeInput.disabled" in open_block
+
+    # Busy state disables editing and resubmission.
+    busy_at = js.find("var setPairBusy = function")
+    busy_block = js[busy_at : js.find("var resetDialog")]
+    assert "codeInput.disabled = busy" in busy_block
+    assert "nicknameInput.disabled = busy" in busy_block
+    assert "submitButton.disabled = busy" in busy_block

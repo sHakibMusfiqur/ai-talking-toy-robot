@@ -112,7 +112,8 @@
                    autocomplete="off" autocapitalize="characters" spellcheck="false" placeholder="8 characters"
                    class="min-h-[44px] w-full rounded-xl border border-line bg-raised px-4 font-mono uppercase tracking-[0.3em] text-body placeholder:tracking-normal placeholder:text-faint">
             <p class="mt-1.5 text-xs text-faint">
-              Shown once on your robot when it starts. Codes are single-use and expire after 15 minutes.
+              Shown once on your robot when it starts. Codes use letters A-Z except I, L, and O, and digits 2-9;
+              each code is single-use and expires after 15 minutes.
             </p>
           </div>
           <div>
@@ -122,6 +123,9 @@
                    class="min-h-[44px] w-full rounded-xl border border-line bg-raised px-4 text-body placeholder:text-faint">
           </div>
           <p id="connect-error" class="hidden rounded-xl border border-bad/40 bg-bad/10 px-4 py-3 text-sm text-bad" role="alert"></p>
+          <p id="connect-progress" class="hidden rounded-xl border border-line bg-raised px-4 py-3 text-sm text-muted" role="status">
+            Pairing is still in progress — you can close this window and come back.
+          </p>
           <div class="flex items-center justify-end gap-3">
             <button type="button" data-connect-close class="btn btn-ghost px-4">Cancel</button>
             <button type="submit" class="btn btn-primary px-5">Pair robot</button>

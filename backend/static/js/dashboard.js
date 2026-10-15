@@ -73,24 +73,38 @@
     var codeInput = document.getElementById("connect-code");
     var nicknameInput = document.getElementById("connect-nickname");
     var errorBox = document.getElementById("connect-error");
+    var progressBox = document.getElementById("connect-progress");
     var successBox = document.getElementById("connect-success");
     var successName = document.getElementById("connect-success-name");
     var successLink = document.getElementById("connect-success-link");
     var submitButton = connectForm.querySelector('button[type="submit"]');
+
+   
+    var pairRequestActive = false;
+    var pairGeneration = 0;
 
     var showError = function (message) {
       errorBox.textContent = message;
       errorBox.hidden = false;
     };
 
+    var setPairBusy = function (busy) {
+      codeInput.disabled = busy;
+      nicknameInput.disabled = busy;
+      submitButton.disabled = busy;
+      submitButton.textContent = busy ? "Pairing\u2026" : "Pair robot";
+    };
+
+    /* Full visual reset. Presentation only — never touches pairRequestActive
+       (the guard belongs to the in-flight request, not to the dialog). */
     var resetDialog = function () {
       connectForm.hidden = false;
       successBox.hidden = true;
       errorBox.hidden = true;
       errorBox.textContent = "";
+      progressBox.hidden = true;
       connectForm.reset();
-      submitButton.disabled = false;
-      submitButton.textContent = "Pair robot";
+      setPairBusy(false);
     };
 
     var closeDialog = function () {
@@ -101,10 +115,16 @@
     document.querySelectorAll("[data-connect-open]").forEach(function (button) {
       button.addEventListener("click", function () {
         resetDialog();
+        if (pairRequestActive) {
+          /* Reopening during a pending request resumes the in-progress
+             presentation instead of a fresh submittable form. */
+          setPairBusy(true);
+          progressBox.hidden = false;
+        }
         if (dialog.open) return;
         if (typeof dialog.showModal === "function") dialog.showModal();
         else dialog.setAttribute("open", "");
-        if (codeInput) codeInput.focus();
+        if (codeInput && !codeInput.disabled) codeInput.focus();
       });
     });
 
@@ -143,6 +163,7 @@
 
     connectForm.addEventListener("submit", function (event) {
       event.preventDefault();
+      if (pairRequestActive) return;
       var code = (codeInput.value || "").trim();
       var nickname = (nicknameInput.value || "").trim().slice(0, 100);
 
@@ -158,17 +179,23 @@
 
       errorBox.hidden = true;
       errorBox.textContent = "";
-      submitButton.disabled = true;
-      submitButton.textContent = "Pairing\u2026";
+      progressBox.hidden = true;
+      pairRequestActive = true;
+      var generation = ++pairGeneration;
+      setPairBusy(true);
 
-      var settle = function () {
-        submitButton.disabled = false;
-        submitButton.textContent = "Pair robot";
+      /* Final cleanup path for both success and failure: release the guard
+         and restore the controls exactly once per request. */
+      var finish = function () {
+        pairRequestActive = false;
+        setPairBusy(false);
+        progressBox.hidden = true;
       };
 
       window.RobotAPI.pair(code, nickname).then(
         function (data) {
-          settle();
+          finish();
+          if (generation !== pairGeneration) return;
           if (!data || !/^[0-9a-fA-F]{24}$/.test(data.id || "")) {
             showError(
               "Pairing worked, but the robot link was not valid. Refresh the dashboard."
@@ -185,7 +212,8 @@
           successBox.hidden = false;
         },
         function (err) {
-          settle();
+          finish();
+          if (generation !== pairGeneration) return;
           var status = err && err.status;
           var body = err && err.data;
           if (status === 400 && body && typeof body === "object") {
