@@ -299,10 +299,12 @@ CONVERSATION_TURN_RATE_LIMIT = os.environ.get(
 )
 
 # LOCAL UI TESTING ONLY (never enable in production): an explicit,
-# default-off development opt-in that lets a loopback request act as the
-# parent named by LOCAL_UI_TEST_USER_EMAIL so the server-rendered
-# dashboard/controller can be inspected without the login page. Requires
-# DEBUG=True on top of these flags - see core.local_ui_bypass.
+# default-off development opt-in that establishes a normal Django
+# session for the parent named by LOCAL_UI_TEST_USER_EMAIL on local
+# dashboard page loads, so the panel and its owner-scoped API calls
+# work without the login page. Identity comes only from this settings
+# value (never from request input), /api/ paths are never bootstrapped,
+# and it additionally requires DEBUG=True - see core.local_ui_bypass.
 LOCAL_UI_TEST_BYPASS = os.environ.get(
     "LOCAL_UI_TEST_BYPASS", "false"
 ).lower() in ("1", "true", "yes")

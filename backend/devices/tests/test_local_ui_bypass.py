@@ -115,8 +115,10 @@ def test_dashboard_accessible_without_login(bypass_parent):
     assert response.status_code == 200
     html = response.content.decode()
     assert "BypassBotty" in html
-    # The bypass never creates a login session.
-    assert "_auth_user_id" not in client.session
+    # Preferred design: the local bootstrap establishes a REAL session for
+    # the parent named by settings, so the page's own owner-scoped API
+    # calls work without a manual sign-in.
+    assert client.session["_auth_user_id"] == str(bypass_parent.user.pk)
 
 
 def test_controller_page_accessible_without_login(bypass_parent):
@@ -333,3 +335,288 @@ def test_api_js_login_redirect_gated_by_bypass_marker():
     assert "BYPASS_META" in api_js
     # Exactly one auto-redirect exists and it sits inside the gate.
     assert api_js.count('window.location.assign("/login/?next=" + next)') == 1
+
+
+# --- Sign-in-free local session: page loads bootstrap a real session -------
+# Preferred design (Phase 2): with every fail-closed gate true, a local
+# dashboard page load establishes a NORMAL Django session for the parent
+# named by LOCAL_UI_TEST_USER_EMAIL, so the controller's owner-scoped API
+# reads and semantic command writes work live. /api/ itself never
+# bootstraps; identity comes only from server settings.
+
+
+@pytest.fixture
+def publish_recorder(monkeypatch):
+    from devices import views
+
+    calls = []
+
+    def _record(robot, payload):
+        calls.append((robot, payload))
+
+    monkeypatch.setattr(views, "publish_command", _record)
+    return calls
+
+
+@pytest.fixture
+def clear_cooldowns():
+    from devices.views import _command_cooldowns
+
+    _command_cooldowns.clear()
+    yield
+    _command_cooldowns.clear()
+
+
+def test_bootstrap_establishes_configured_parent_session(bypass_parent):
+    from django.conf import settings
+
+    _robot(bypass_parent, nickname="SessionBotty")
+    with _settings_on():
+        client = APIClient()
+        response = client.get("/dashboard/")
+    assert response.status_code == 200
+    assert "SessionBotty" in response.content.decode()
+    assert settings.SESSION_COOKIE_NAME in client.cookies
+    assert client.session["_auth_user_id"] == str(bypass_parent.user.pk)
+
+
+def test_root_path_bootstraps_session(bypass_parent):
+    from django.conf import settings
+
+    with _settings_on():
+        client = APIClient()
+        response = client.get("/")
+    assert response.status_code == 302
+    assert settings.SESSION_COOKIE_NAME in client.cookies
+    assert client.session["_auth_user_id"] == str(bypass_parent.user.pk)
+
+
+def test_bootstrap_session_reads_owner_scoped_controller_endpoints(bypass_parent):
+    robot = _robot(bypass_parent, nickname="LiveBot")
+    with _settings_on():
+        client = APIClient()
+        assert client.get("/dashboard/").status_code == 200
+        summary = client.get(f"/api/v1/devices/{robot.pk}/summary/")
+        state = client.get(f"/api/v1/devices/{robot.pk}/state/")
+        events = client.get(f"/api/v1/devices/{robot.pk}/events/")
+        sensors = client.get(f"/api/v1/devices/{robot.pk}/sensors/")
+        configuration = client.get(f"/api/v1/devices/{robot.pk}/configuration/")
+    assert summary.status_code == 200
+    assert summary.data["robot"]["id"] == str(robot.pk)
+    assert state.status_code == 200
+    assert events.status_code == 200
+    assert isinstance(events.data, list)
+    assert sensors.status_code == 200
+    assert isinstance(sensors.data, list)
+    assert configuration.status_code == 200
+
+
+def test_bootstrapped_session_cross_owner_endpoints_are_404(
+    bypass_parent, other_parent
+):
+    stranger_robot = _robot(other_parent, nickname="StrangersBotty")
+    with _settings_on():
+        client = APIClient()
+        assert client.get("/dashboard/").status_code == 200
+        state = client.get(f"/api/v1/devices/{stranger_robot.pk}/state/")
+        summary = client.get(f"/api/v1/devices/{stranger_robot.pk}/summary/")
+        page = client.get(f"/dashboard/robots/{stranger_robot.pk}/")
+    assert state.status_code == 404
+    assert summary.status_code == 404
+    assert page.status_code == 404
+
+
+def test_bootstrapped_session_sends_semantic_command(
+    bypass_parent, publish_recorder, clear_cooldowns
+):
+    robot = _robot(bypass_parent, nickname="CmdBot")
+    with _settings_on():
+        client = APIClient()
+        assert client.get("/dashboard/").status_code == 200
+        response = client.post(
+            f"/api/v1/devices/{robot.pk}/command/",
+            {"action": "wave"},
+            format="json",
+        )
+    assert response.status_code == 200, response.content
+    assert len(publish_recorder) == 1
+    recorded_robot, payload = publish_recorder[0]
+    assert recorded_robot.pk == robot.pk
+    # Contract: case-insensitive membership, verbatim pass-through.
+    assert payload["action"] == "wave"
+
+
+def test_bootstrapped_session_still_enforces_csrf(
+    bypass_parent, publish_recorder, clear_cooldowns
+):
+    from django.conf import settings
+
+    robot = _robot(bypass_parent, nickname="CsrfBot")
+    with _settings_on():
+        client = APIClient(enforce_csrf_checks=True)
+        assert client.get("/dashboard/").status_code == 200
+        token = client.cookies[settings.CSRF_COOKIE_NAME].value
+        missing = client.post(
+            f"/api/v1/devices/{robot.pk}/command/",
+            {"action": "wave"},
+            format="json",
+        )
+        assert missing.status_code == 403
+        assert publish_recorder == []
+        client.credentials(HTTP_X_CSRFTOKEN=token)
+        ok = client.post(
+            f"/api/v1/devices/{robot.pk}/command/",
+            {"action": "wave"},
+            format="json",
+        )
+    assert ok.status_code == 200, ok.content
+    assert len(publish_recorder) == 1
+
+
+def test_bootstrapped_session_rejects_invalid_action(
+    bypass_parent, publish_recorder, clear_cooldowns
+):
+    robot = _robot(bypass_parent, nickname="BadCmdBot")
+    with _settings_on():
+        client = APIClient()
+        assert client.get("/dashboard/").status_code == 200
+        response = client.post(
+            f"/api/v1/devices/{robot.pk}/command/",
+            {"action": "servo"},
+            format="json",
+        )
+    assert response.status_code == 400
+    assert publish_recorder == []
+
+
+def test_bootstrapped_session_command_cooldown_still_applies(
+    bypass_parent, publish_recorder, clear_cooldowns
+):
+    robot = _robot(bypass_parent, nickname="CoolBot")
+    with _settings_on():
+        client = APIClient()
+        assert client.get("/dashboard/").status_code == 200
+        first = client.post(
+            f"/api/v1/devices/{robot.pk}/command/",
+            {"action": "wave"},
+            format="json",
+        )
+        second = client.post(
+            f"/api/v1/devices/{robot.pk}/command/",
+            {"action": "wave"},
+            format="json",
+        )
+    assert first.status_code == 200, first.content
+    assert second.status_code == 429
+    assert len(publish_recorder) == 1
+
+
+def test_api_paths_never_bootstrap_a_session(bypass_parent, monkeypatch):
+    from django.conf import settings
+
+    monkeypatch.setattr(bypass_mod, "_default_gateway", lambda: "172.20.0.1")
+    robot = _robot(bypass_parent)
+    with _settings_on():
+        client = APIClient()
+        response = client.get(
+            f"/api/v1/devices/{robot.pk}/state/", REMOTE_ADDR="172.20.0.1"
+        )
+    assert response.status_code == 401
+    assert settings.SESSION_COOKIE_NAME not in client.cookies
+    assert "_auth_user_id" not in client.session
+
+
+def test_login_page_never_bootstraps_a_session(bypass_parent):
+    from django.conf import settings
+
+    with _settings_on():
+        client = APIClient()
+        response = client.get("/login/")
+    assert response.status_code == 200
+    assert settings.SESSION_COOKIE_NAME not in client.cookies
+    assert "_auth_user_id" not in client.session
+
+
+def test_unknown_path_never_bootstraps_a_session(bypass_parent):
+    from django.conf import settings
+
+    with _settings_on():
+        client = APIClient()
+        response = client.get("/no-such-page/")
+    assert response.status_code == 404
+    assert settings.SESSION_COOKIE_NAME not in client.cookies
+    assert "_auth_user_id" not in client.session
+
+
+def test_missing_or_invalid_parent_never_creates_a_session(bypass_parent):
+    from django.conf import settings
+
+    with override_settings(
+        DEBUG=True,
+        LOCAL_UI_TEST_BYPASS=True,
+        LOCAL_UI_TEST_USER_EMAIL="",
+    ):
+        client = APIClient()
+        assert client.get("/dashboard/").status_code == 302
+        assert settings.SESSION_COOKIE_NAME not in client.cookies
+
+    with override_settings(
+        DEBUG=True,
+        LOCAL_UI_TEST_BYPASS=True,
+        LOCAL_UI_TEST_USER_EMAIL="nobody@example.com",
+    ):
+        client = APIClient()
+        assert client.get("/dashboard/").status_code == 302
+        assert settings.SESSION_COOKIE_NAME not in client.cookies
+
+    bypass_parent.user.is_active = False
+    bypass_parent.user.save()
+    with _settings_on():
+        client = APIClient()
+        assert client.get("/dashboard/").status_code == 302
+        assert settings.SESSION_COOKIE_NAME not in client.cookies
+
+
+def test_disabled_config_never_creates_a_session(bypass_parent):
+    from django.conf import settings
+
+    for flags in (
+        dict(
+            DEBUG=True,
+            LOCAL_UI_TEST_BYPASS=False,
+            LOCAL_UI_TEST_USER_EMAIL=BYPASS_EMAIL,
+        ),
+        dict(
+            DEBUG=False,
+            LOCAL_UI_TEST_BYPASS=True,
+            LOCAL_UI_TEST_USER_EMAIL=BYPASS_EMAIL,
+        ),
+    ):
+        with override_settings(**flags):
+            client = APIClient()
+            response = client.get("/dashboard/")
+        assert response.status_code == 302
+        assert settings.SESSION_COOKIE_NAME not in client.cookies
+
+
+def test_non_local_client_never_creates_a_session(bypass_parent, monkeypatch):
+    from django.conf import settings
+
+    monkeypatch.setattr(bypass_mod, "_default_gateway", lambda: "172.20.0.1")
+    for remote_addr in ("203.0.113.9", "172.20.0.99"):
+        with _settings_on():
+            client = APIClient()
+            response = client.get("/dashboard/", REMOTE_ADDR=remote_addr)
+        assert response.status_code == 302
+        assert settings.SESSION_COOKIE_NAME not in client.cookies
+
+
+def test_bootstrap_session_key_is_stable_across_requests(bypass_parent):
+    with _settings_on():
+        client = APIClient()
+        assert client.get("/dashboard/").status_code == 200
+        first_key = client.session.session_key
+        assert client.get("/dashboard/").status_code == 200
+        second_key = client.session.session_key
+    assert first_key
+    assert first_key == second_key

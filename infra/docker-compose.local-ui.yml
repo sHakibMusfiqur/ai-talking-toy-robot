@@ -1,4 +1,10 @@
-
+# Local-only dev overlay: keeps base settings intact and flips ONLY
+# DJANGO_DEBUG to true. Selecting this overlay is a required gate of the
+# sign-in-free local dashboard session (core.local_ui_bypass):
+# LOCAL_UI_TEST_BYPASS / LOCAL_UI_TEST_USER_EMAIL are forwarded by the
+# base file from .env (default off there); with DEBUG=false in the base
+# they alone change nothing. ALLOWED_HOSTS, secrets, ports, and every
+# other setting come from the base file.
 services:
   django:
     environment:
