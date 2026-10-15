@@ -88,6 +88,36 @@ services:
       retries: 6
       start_period: 10s
 
+  # Compose-managed MQTT bridge (AGENTS.md decision record 2026-10-15):
+  # `manage.py run_mqtt_bridge` now runs as its OWN service on the same
+  # image as django - never as an extra process inside the django web
+  # container. It publishes no host port and starts only after mongo AND
+  # mosquitto are actually healthy (not merely started). Credentials come
+  # from the same .env keys as the django service (no new secrets). The
+  # bridge client id is django-bridge-<pid>: never also run the manual
+  # host bridge at the same time (two subscribers would double-ingest).
+  # Startup fails fast on provisioning errors (container exits, visible
+  # in compose ps/logs); broker connect retries with bounded backoff.
+  bridge:
+    build: ../backend
+    environment:
+      DJANGO_DEBUG: "false"
+      DJANGO_SECRET_KEY: ${DJANGO_SECRET_KEY:?DJANGO_SECRET_KEY must be set in .env}
+      MONGO_HOST: "mongodb://mongo:27017/?replicaSet=rs0"
+      MONGO_DB_NAME: "ai_talking_toy"
+      MQTT_HOST: "mosquitto"
+      MQTT_PORT: "1883"
+      MQTT_BRIDGE_USERNAME: "django-service"
+      MQTT_BRIDGE_PASSWORD: ${MQTT_BRIDGE_PASSWORD:?MQTT_BRIDGE_PASSWORD must be set in .env}
+      MQTT_ADMIN_USERNAME: "admin"
+      MQTT_ADMIN_PASSWORD: ${MQTT_ADMIN_PASSWORD:?MQTT_ADMIN_PASSWORD must be set in .env}
+    depends_on:
+      mongo:
+        condition: service_healthy
+      mosquitto:
+        condition: service_healthy
+    command: ["python", "manage.py", "run_mqtt_bridge"]
+
 volumes:
   mongo_data:
   mosquitto_data:

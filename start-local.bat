@@ -65,7 +65,7 @@ if not exist "%UI_FILE%" (
 )
 
 rem --- Start the stack (idempotent: re-runs never duplicate containers) ----
-echo Starting services: mongo, mosquitto, django, ai-service...
+echo Starting services: mongo, mosquitto, django, ai-service, bridge...
 docker compose --env-file %ENV_FILE% -f %BASE_FILE% -f %UI_FILE% up -d --build
 if errorlevel 1 (
     echo [ERROR] "docker compose up" failed.
@@ -116,6 +116,10 @@ call :health_of mosquitto
 if /i not "%_H%"=="healthy" exit /b 1
 call :health_of ai-service
 if /i not "%_H%"=="healthy" exit /b 1
+rem The bridge has no HTTP health endpoint; require its container to be
+rem running (it exits fast on startup failure, so a dead bridge is visible).
+call :health_of bridge
+if /i not "%_H%"=="running" exit /b 1
 call :http_ok
 exit /b %ERRORLEVEL%
 
@@ -138,6 +142,8 @@ call :health_of mosquitto
 echo   mosquitto: %_H%
 call :health_of ai-service
 echo   ai-service: %_H%
+call :health_of bridge
+if /i "%_H%"=="" (echo   bridge: NOT CREATED) else (echo   bridge: %_H%)
 call :http_ok
 if errorlevel 1 (echo   django /health + static: NOT READY) else (echo   django /health + static: OK)
 exit /b 0

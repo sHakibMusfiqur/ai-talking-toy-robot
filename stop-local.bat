@@ -31,7 +31,7 @@ if not exist "%ENV_FILE%" (
     goto :fail
 )
 
-echo Stopping containers (mongo, mosquitto, django, ai-service)...
+echo Stopping containers (mongo, mosquitto, django, ai-service, bridge)...
 docker compose --env-file %ENV_FILE% -f %BASE_FILE% -f %UI_FILE% stop
 if errorlevel 1 (
     echo [ERROR] "docker compose stop" failed.
