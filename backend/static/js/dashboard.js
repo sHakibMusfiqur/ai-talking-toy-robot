@@ -1,5 +1,7 @@
-/* Shared page behaviour: mobile sidebar toggle, sign out, greeting.
-   Self-contained (no RobotAPI dependency) so every page can load it. */
+/* Shared page behaviour: mobile sidebar toggle, sign out, greeting, and the
+   Connect Robot pairing dialog (bound only when the dialog markup is present,
+   so pages without it keep loading this file standalone). RobotAPI is touched
+   exclusively inside the submit handler, never at load time. */
 (function () {
   "use strict";
 
@@ -62,5 +64,151 @@
     var phrase =
       hour < 12 ? "Good morning" : hour < 18 ? "Good afternoon" : "Good evening";
     greeting.textContent = phrase;
+  }
+
+  /* Connect Robot — pairing dialog (dashboard only; no-ops elsewhere). */
+  var dialog = document.getElementById("connect-dialog");
+  var connectForm = document.getElementById("connect-form");
+  if (dialog && connectForm) {
+    var codeInput = document.getElementById("connect-code");
+    var nicknameInput = document.getElementById("connect-nickname");
+    var errorBox = document.getElementById("connect-error");
+    var successBox = document.getElementById("connect-success");
+    var successName = document.getElementById("connect-success-name");
+    var successLink = document.getElementById("connect-success-link");
+    var submitButton = connectForm.querySelector('button[type="submit"]');
+
+    var showError = function (message) {
+      errorBox.textContent = message;
+      errorBox.hidden = false;
+    };
+
+    var resetDialog = function () {
+      connectForm.hidden = false;
+      successBox.hidden = true;
+      errorBox.hidden = true;
+      errorBox.textContent = "";
+      connectForm.reset();
+      submitButton.disabled = false;
+      submitButton.textContent = "Pair robot";
+    };
+
+    var closeDialog = function () {
+      if (typeof dialog.close === "function") dialog.close();
+      else dialog.removeAttribute("open");
+    };
+
+    document.querySelectorAll("[data-connect-open]").forEach(function (button) {
+      button.addEventListener("click", function () {
+        resetDialog();
+        if (dialog.open) return;
+        if (typeof dialog.showModal === "function") dialog.showModal();
+        else dialog.setAttribute("open", "");
+        if (codeInput) codeInput.focus();
+      });
+    });
+
+    document.querySelectorAll("[data-connect-close]").forEach(function (button) {
+      button.addEventListener("click", closeDialog);
+    });
+
+    document.querySelectorAll("[data-connect-done]").forEach(function (button) {
+      button.addEventListener("click", function () {
+        window.location.reload();
+      });
+    });
+
+    /* Backdrop click closes; in-dialog padding clicks must not. */
+    dialog.addEventListener("click", function (event) {
+      if (event.target !== dialog) return;
+      var rect = dialog.getBoundingClientRect();
+      var outside =
+        event.clientX < rect.left ||
+        event.clientX > rect.right ||
+        event.clientY < rect.top ||
+        event.clientY > rect.bottom;
+      if (outside) closeDialog();
+    });
+
+    dialog.addEventListener("close", resetDialog);
+
+    if (codeInput) {
+      codeInput.addEventListener("input", function () {
+        codeInput.value = codeInput.value
+          .toUpperCase()
+          .replace(/[^A-Z0-9]/g, "")
+          .slice(0, 8);
+      });
+    }
+
+    connectForm.addEventListener("submit", function (event) {
+      event.preventDefault();
+      var code = (codeInput.value || "").trim();
+      var nickname = (nicknameInput.value || "").trim().slice(0, 100);
+
+      if (code.length !== 8) {
+        showError("Enter the 8-character pairing code shown by your robot.");
+        codeInput.focus();
+        return;
+      }
+      if (!window.RobotAPI || typeof window.RobotAPI.pair !== "function") {
+        showError("This page is missing its API layer. Refresh and try again.");
+        return;
+      }
+
+      errorBox.hidden = true;
+      errorBox.textContent = "";
+      submitButton.disabled = true;
+      submitButton.textContent = "Pairing\u2026";
+
+      var settle = function () {
+        submitButton.disabled = false;
+        submitButton.textContent = "Pair robot";
+      };
+
+      window.RobotAPI.pair(code, nickname).then(
+        function (data) {
+          settle();
+          if (!data || !/^[0-9a-fA-F]{24}$/.test(data.id || "")) {
+            showError(
+              "Pairing worked, but the robot link was not valid. Refresh the dashboard."
+            );
+            return;
+          }
+          successName.textContent =
+            data.nickname || data.device_id || "Your robot";
+          successLink.setAttribute(
+            "href",
+            "/dashboard/robots/" + String(data.id).toLowerCase() + "/"
+          );
+          connectForm.hidden = true;
+          successBox.hidden = false;
+        },
+        function (err) {
+          settle();
+          var status = err && err.status;
+          var body = err && err.data;
+          if (status === 400 && body && typeof body === "object") {
+            if (typeof body.detail === "string") {
+              showError(body.detail);
+              return;
+            }
+            if (Array.isArray(body.pairing_code) && body.pairing_code.length) {
+              showError(String(body.pairing_code[0]));
+              return;
+            }
+          }
+          if (status === 403) {
+            showError(
+              "Your session may have expired. Refresh the page and try again."
+            );
+            return;
+          }
+          showError(
+            (err && err.message) || window.RobotAPI.friendlyMessage(status)
+          );
+        }
+      );
+    });
   }
 })();

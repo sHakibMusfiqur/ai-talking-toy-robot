@@ -89,6 +89,14 @@
     },
     sendCommand: function (robotId, action) {
       return request("POST", robotUrl(robotId, "command/"), { action: action });
+    },
+    /* Pair a robot to the signed-in parent. Only the two serializer-accepted
+       fields are ever sent — ownership is derived server-side from session. */
+    pair: function (pairingCode, nickname) {
+      return request("POST", "/api/v1/devices/pair/", {
+        pairing_code: pairingCode,
+        nickname: nickname || ""
+      });
     }
   };
 })();

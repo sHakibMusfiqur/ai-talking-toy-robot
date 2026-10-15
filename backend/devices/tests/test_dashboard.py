@@ -471,3 +471,131 @@ def test_sidebar_controller_link_targets_controller_page(api_client, parent):
     html = api_client.get(controller_url(robot)).content.decode()
     assert f'href="/dashboard/robots/{robot.pk}/"' in html
     assert "Robot Controller" in html
+
+
+# --- Connect Robot / pairing UI -------------------------------------------
+
+
+def test_dashboard_exposes_connect_robot_action(api_client, parent):
+    empty = api_client.get("/dashboard/").content.decode()
+    # Header action + empty-state call to action, and counts stay intact.
+    assert empty.count("data-connect-open") == 2
+    assert "Connect Robot" in empty
+    assert stat_value(empty, "total") == "0"
+
+    _robot(parent, nickname="PairedBot")
+    with_robot = api_client.get("/dashboard/").content.decode()
+    assert with_robot.count("data-connect-open") == 1
+    assert stat_value(with_robot, "total") == "1"
+
+
+def test_dashboard_connect_dialog_markup_and_accessibility(api_client, parent):
+    html = api_client.get("/dashboard/").content.decode()
+    for marker in (
+        'id="connect-dialog"',
+        'aria-labelledby="connect-dialog-title"',
+        'id="connect-code"',
+        'for="connect-code"',
+        'id="connect-nickname"',
+        'for="connect-nickname"',
+        'maxlength="8"',
+        'maxlength="100"',
+        'id="connect-error"',
+        'role="alert"',
+        'id="connect-success"',
+        ">Pair robot<",
+        ">Cancel<",
+        "single-use",
+        "15 minutes",
+        "Shown once",
+    ):
+        assert marker in html, marker
+
+
+def test_connect_dialog_is_dashboard_only(api_client, parent):
+    robot = _robot(parent)
+    html = api_client.get(controller_url(robot)).content.decode()
+    assert "connect-dialog" not in html
+    assert "data-connect-open" not in html
+
+
+def test_dashboard_loads_api_js_before_dashboard_js(api_client, parent):
+    html = api_client.get("/dashboard/").content.decode()
+    api_at = html.find("js/api.js")
+    dashboard_at = html.find("js/dashboard.js")
+    assert api_at != -1, "api.js missing from dashboard"
+    assert dashboard_at != -1, "dashboard.js missing from dashboard"
+    assert api_at < dashboard_at
+
+
+def test_dashboard_shows_never_connected_for_unseen_robots(api_client, parent):
+    _robot(parent, nickname="SeenBot", last_seen=timezone.now())
+    _robot(parent, nickname="FreshBot", last_seen=None)
+    html = api_client.get("/dashboard/").content.decode()
+    assert html.count("Never connected") == 1
+
+
+def test_api_js_pair_source_contract():
+    api_js = (
+        Path(__file__).resolve().parents[2] / "static" / "js" / "api.js"
+    ).read_text(encoding="utf-8")
+    assert api_js.count("/api/v1/devices/pair/") == 1
+    start = api_js.find("pair:")
+    assert start != -1, "RobotAPI.pair missing"
+    block = api_js[start : start + 400]
+    assert 'request("POST", "/api/v1/devices/pair/"' in block
+    assert "pairing_code" in block
+    assert "nickname" in block
+    for forbidden in ("parent_id", "owner_id", "user_id", "fetch(", "X-CSRFToken"):
+        assert forbidden not in block, forbidden
+    assert "parent" not in block
+
+
+def test_dashboard_connect_js_source_contract():
+    js = (
+        Path(__file__).resolve().parents[2] / "static" / "js" / "dashboard.js"
+    ).read_text(encoding="utf-8")
+    assert "RobotAPI.pair" in js
+    assert "/^[0-9a-fA-F]{24}$/.test" in js
+    assert "toUpperCase()" in js
+    assert "/dashboard/robots/" in js
+    assert "body.detail" in js
+    assert "body.pairing_code" in js
+    assert "Your session may have expired. Refresh the page and try again." in js
+
+
+def test_connect_dialog_source_holds_only_accepted_fields():
+    source = (
+        Path(__file__).resolve().parents[2]
+        / "templates"
+        / "dashboard"
+        / "index.html"
+    ).read_text(encoding="utf-8")
+    start = source.find('id="connect-dialog"')
+    end = source.find("</dialog>")
+    assert start != -1 and end != -1
+    block = source[start:end].lower()
+    for forbidden in (
+        "parent_id",
+        "owner_id",
+        "user_id",
+        "localstorage",
+        "sessionstorage",
+        "mqtt",
+    ):
+        assert forbidden not in block, forbidden
+
+
+def test_pairing_success_copy_does_not_claim_online():
+    source = (
+        Path(__file__).resolve().parents[2]
+        / "templates"
+        / "dashboard"
+        / "index.html"
+    ).read_text(encoding="utf-8")
+    start = source.find('id="connect-success"')
+    end = source.find("</dialog>")
+    assert start != -1 and end != -1
+    block = source[start:end].lower()
+    assert "robot paired" in block
+    assert "online" not in block
