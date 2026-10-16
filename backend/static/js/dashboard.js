@@ -79,7 +79,33 @@
     var successLink = document.getElementById("connect-success-link");
     var submitButton = connectForm.querySelector('button[type="submit"]');
 
-   
+    
+    var requiredElements = [
+      ["#connect-code", codeInput],
+      ["#connect-nickname", nicknameInput],
+      ["#connect-error", errorBox],
+      ["#connect-progress", progressBox],
+      ["#connect-success", successBox],
+      ["#connect-success-name", successName],
+      ["#connect-success-link", successLink],
+      ['#connect-form button[type="submit"]', submitButton]
+    ];
+    var missingElements = requiredElements.filter(function (pair) {
+      return !pair[1];
+    });
+    if (missingElements.length) {
+      console.error(
+        "Connect Robot dialog markup incomplete — missing: " +
+          missingElements
+            .map(function (pair) {
+              return pair[0];
+            })
+            .join(", ") +
+          ". Pairing dialog disabled."
+      );
+      return;
+    }
+
     var pairRequestActive = false;
     var pairGeneration = 0;
 

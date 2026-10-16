@@ -7,7 +7,7 @@
   <meta name="csrf-token" content="{{ csrf_token }}">
   {% if request.local_ui_active %}<meta name="local-ui-bypass" content="1">{% endif %}
   <title>{% block title %}Control Panel{% endblock %} · AI Talking Toy Robot</title>
-  <link rel="stylesheet" href="{% static 'css/app.css' %}">
+  <link rel="stylesheet" href="{% static 'css/app.css' %}?v={{ asset_version }}">
 </head>
 <body class="min-h-screen font-sans">
 {% block body %}{% endblock %}

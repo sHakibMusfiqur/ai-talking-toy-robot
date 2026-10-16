@@ -93,6 +93,7 @@ TEMPLATES = [
                 "django.template.context_processors.request",
                 "django.contrib.auth.context_processors.auth",
                 "django.contrib.messages.context_processors.messages",
+                "core.context_processors.asset_version",
             ],
         },
     },
@@ -142,6 +143,10 @@ STATICFILES_DIRS = [BASE_DIR / "static"]
 # collectstatic validation target (git-ignored); no static *hosting* is
 # configured here — production serving belongs to the deployment phase.
 STATIC_ROOT = BASE_DIR / "staticfiles"
+# Cache-busting token appended to panel asset URLs (?v=...). Dev-server static
+# responses carry no Cache-Control, so browsers heuristically cache JS/CSS;
+# bump this whenever panel JS/CSS changes so stale copies are invalidated.
+ASSET_VERSION = os.environ.get("ASSET_VERSION", "2026-10-16-1")
 
 DEFAULT_AUTO_FIELD = "django_mongodb_backend.fields.ObjectIdAutoField"
 

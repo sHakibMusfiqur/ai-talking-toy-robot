@@ -5,6 +5,9 @@ from html.parser import HTMLParser
 from pathlib import Path
 
 import pytest
+from django.conf import settings
+from django.test import override_settings
+
 from configuration.models import Configuration
 from devices.models import Robot, RobotState
 from devices.services import PAIRING_CODE_ALPHABET
@@ -676,3 +679,76 @@ def test_dashboard_pairing_inflight_guard_source_contract():
     assert "codeInput.disabled = busy" in busy_block
     assert "nicknameInput.disabled = busy" in busy_block
     assert "submitButton.disabled = busy" in busy_block
+
+
+def test_dashboard_static_refs_carry_asset_version(api_client, parent):
+    """Panel asset URLs must carry the cache-busting version. Static responses
+    have no Cache-Control, so an un-versioned dashboard.js could stay cached in
+    a browser from before the pairing dialog existed - the button would render
+    (fresh HTML) but do nothing (stale JS with no binding)."""
+    assert settings.ASSET_VERSION
+    html = api_client.get("/dashboard/").content.decode()
+    for ref in (
+        "/static/js/api.js?v=",
+        "/static/js/dashboard.js?v=",
+        "/static/css/app.css?v=",
+    ):
+        assert ref in html, ref
+    assert f"/static/js/dashboard.js?v={settings.ASSET_VERSION}" in html
+    assert f"/static/js/api.js?v={settings.ASSET_VERSION}" in html
+    assert f"/static/css/app.css?v={settings.ASSET_VERSION}" in html
+
+
+@override_settings(ASSET_VERSION="test-bump-123")
+def test_asset_version_setting_flows_into_rendered_urls(api_client, parent):
+    html = api_client.get("/dashboard/").content.decode()
+    assert "/static/js/dashboard.js?v=test-bump-123" in html
+    assert "/static/css/app.css?v=test-bump-123" in html
+
+
+def test_connect_dialog_required_element_ids_exist_in_template():
+    """Every element the dialog JS binds must exist in the template. A missing
+    id would throw mid-click and the Connect Robot button would look dead."""
+    js = (
+        Path(__file__).resolve().parents[2] / "static" / "js" / "dashboard.js"
+    ).read_text(encoding="utf-8")
+    template = (
+        Path(__file__).resolve().parents[2]
+        / "templates"
+        / "dashboard"
+        / "index.html"
+    ).read_text(encoding="utf-8")
+
+    dialog_at = js.find("var dialog = document.getElementById")
+    assert dialog_at != -1
+    dialog_block = js[dialog_at : js.find("var pairRequestActive")]
+
+    ids = re.findall(r'getElementById\("([^"]+)"\)', dialog_block)
+    ids = [i for i in ids if i != "account-dropdown"]
+    assert "connect-dialog" in ids
+    assert "connect-form" in ids
+    for element_id in ids:
+        assert f'id="{element_id}"' in template, element_id
+
+    # The submit button selector used by setPairBusy must match the template.
+    assert 'button[type="submit"]' in js
+    assert '<button type="submit"' in template
+
+
+def test_dashboard_js_fails_visibly_when_required_elements_missing():
+    """Incomplete dialog markup must surface a console.error and skip binding
+    (fail visibly + safely) instead of throwing mid-click."""
+    js = (
+        Path(__file__).resolve().parents[2] / "static" / "js" / "dashboard.js"
+    ).read_text(encoding="utf-8")
+
+    guard_at = js.find("var requiredElements = [")
+    assert guard_at != -1
+    guard_block = js[guard_at : js.find("var pairRequestActive")]
+    assert "console.error(" in guard_block
+    assert "markup incomplete" in guard_block
+    # Early return before any handler binding.
+    assert "return;" in guard_block
+    # Guard runs after the element lookups it validates.
+    lookup_at = js.find('var codeInput = document.getElementById("connect-code")')
+    assert 0 < lookup_at < guard_at

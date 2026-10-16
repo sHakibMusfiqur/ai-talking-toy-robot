@@ -145,6 +145,6 @@
 </div>
 {% endblock %}
 {% block scripts %}
-<script src="{% static 'js/api.js' %}"></script>
-<script src="{% static 'js/dashboard.js' %}"></script>
+<script src="{% static 'js/api.js' %}?v={{ asset_version }}"></script>
+<script src="{% static 'js/dashboard.js' %}?v={{ asset_version }}"></script>
 {% endblock %}
