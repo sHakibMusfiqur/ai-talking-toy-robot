@@ -18,7 +18,11 @@ from mqtt_bridge.payloads import DeviceCommandSerializer
 from mqtt_bridge.publisher import publish_command
 
 from .authentication import DeviceJWTAuthentication
-from .exceptions import RobotCommandThrottled, RobotCommandUnavailable
+from .exceptions import (
+    ClaimThrottled,
+    RobotCommandThrottled,
+    RobotCommandUnavailable,
+)
 from .models import Robot, RobotState
 from .permissions import DeviceAuthenticated
 from .serializers import (
@@ -28,12 +32,15 @@ from .serializers import (
     DevicePairSerializer,
     DeviceRegisterSerializer,
     DeviceTokenSerializer,
+    RobotClaimSerializer,
     RobotEventReadSerializer,
     RobotSerializer,
     SensorDataReadSerializer,
 )
 from .services import (
     audit_robot_command,
+    claim_robot_with_ticket,
+    create_claim_ticket,
     create_device_challenge,
     exchange_device_token,
     pair_robot,
@@ -107,6 +114,40 @@ def _release_command_slot(user, robot, token) -> None:
 
 def _client_ip(request):
     return request.META.get("REMOTE_ADDR") or None
+
+
+# Per-user claim-attempt limiter (Wi-Fi onboarding): counts every redeem
+# attempt (valid or not) inside a sliding window, so ticket guessing is
+# bounded before any hash lookup. In-memory and per-process (same
+# limitation as ROBOT_COMMAND_COOLDOWN_SECONDS); a rate <= 0 disables it.
+_claim_attempts: dict = {}  # user_pk -> [monotonic_ts, ...]
+_claim_attempts_lock = threading.Lock()
+
+
+def _claim_rate_ok(user):
+    attempts_limit = settings.DEVICE_CLAIM_RATE_LIMIT_ATTEMPTS
+    window = settings.DEVICE_CLAIM_RATE_LIMIT_WINDOW_SECONDS
+    if attempts_limit <= 0 or window <= 0:
+        return True
+    now = _time.monotonic()
+    key = user.pk
+    with _claim_attempts_lock:
+        stamps = [
+            ts for ts in _claim_attempts.get(key, []) if (now - ts) < window
+        ]
+        if len(stamps) >= attempts_limit:
+            _claim_attempts[key] = stamps
+            return False
+        stamps.append(now)
+        _claim_attempts[key] = stamps
+        if len(_claim_attempts) > 1000:
+            for stale_key in [
+                k
+                for k, values in _claim_attempts.items()
+                if not values or (now - max(values)) >= window
+            ]:
+                _claim_attempts.pop(stale_key, None)
+    return True
 
 
 def _get_parent(request):
@@ -259,6 +300,55 @@ class DevicePairView(APIView):
             pairing_code=serializer.validated_data["pairing_code"],
             parent=parent,
             nickname=nickname,
+            ip=_client_ip(request),
+        )
+        return Response(
+            RobotSerializer(robot).data,
+            status=status.HTTP_200_OK,
+        )
+
+
+class DeviceClaimTicketView(APIView):
+    """Device-initiated claim ticket issuance (Wi-Fi onboarding step 3):
+    device-Bearer JWT only; the robot's own identity comes from the token
+    and the raw ticket is returned exactly once (hashed at rest). An empty
+    JSON body is the whole contract — no robot id field is accepted, so a
+    device can only mint a ticket for itself."""
+
+    authentication_classes = [DeviceJWTAuthentication]
+    permission_classes = [DeviceAuthenticated]
+    http_method_names = ["post"]
+
+    def post(self, request):
+        robot = request.auth["robot"]
+        raw_ticket, expires_in = create_claim_ticket(
+            robot=robot, ip=_client_ip(request)
+        )
+        return Response(
+            {"ticket": raw_ticket, "expires_in": expires_in},
+            status=status.HTTP_201_CREATED,
+        )
+
+
+class RobotClaimView(APIView):
+    """Session + CSRF redeem of a device-issued claim ticket (Wi-Fi
+    onboarding): the ticket alone selects the robot server-side; ownership
+    is always the authenticated session's own Parent — never client input.
+    Attempt-limited per user; every ticket fault is the one uniform 400."""
+
+    permission_classes = [AuthRequired]
+    http_method_names = ["post"]
+
+    def post(self, request):
+        serializer = RobotClaimSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        if not _claim_rate_ok(request.user):
+            raise ClaimThrottled()
+        parent = _get_parent(request)
+        robot = claim_robot_with_ticket(
+            ticket=serializer.validated_data["ticket"],
+            parent=parent,
+            nickname=serializer.validated_data.get("nickname") or None,
             ip=_client_ip(request),
         )
         return Response(
@@ -574,6 +664,79 @@ def robot_controller(request, pk):
                 timezone.localtime(robot.last_seen).strftime("%b %d, %Y %H:%M")
                 if robot.last_seen
                 else "N/A"
+            ),
+        },
+    )
+
+
+CLAIM_LINK_MAX_LENGTH = 128
+CLAIM_LINK_CHARSET_OK = set(
+    "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789-_"
+)
+
+
+def _claim_link_format_ok(ticket):
+    """GET-side shape check only (length + URL-safe charset): the page never
+    tells the visitor whether a well-formed ticket actually exists — that
+    verdict belongs to the authoritative POST redeem, which applies the
+    uniform error regardless."""
+    if not isinstance(ticket, str):
+        return False
+    if not 8 <= len(ticket) <= CLAIM_LINK_MAX_LENGTH:
+        return False
+    return all(ch in CLAIM_LINK_CHARSET_OK for ch in ticket)
+
+
+@login_required
+def onboarding(request):
+    """Wi-Fi onboarding wizard — instructions step: the parent signs in
+    (login preserves `next`), reads how to finish the robot's setup network,
+    and continues from the claim link the robot's setup page shows. This
+    page never lists or discovers robots: nothing here depends on knowing
+    which robot is unpaired."""
+    return render(
+        request,
+        "dashboard/onboarding.html",
+        {
+            "user_email": request.user.email,
+            "step": "instructions",
+            "claim_ticket": "",
+            "error_detail": "",
+        },
+    )
+
+
+@login_required
+def onboarding_claim(request):
+    """Wi-Fi onboarding wizard — claim step: rendered from the link the
+    robot's setup page handed out (?ticket=...). GET only renders the
+    confirmation UI for a well-shaped ticket (no DB lookup, no validity
+    leak); the single-flight POST to /api/v1/devices/claim/ performs the
+    real redeem and drives success/error. The raw ticket lives only in this
+    request's rendered markup and the confirm POST body — never localStorage,
+    never logs."""
+    ticket = request.GET.get("ticket", "")
+    if _claim_link_format_ok(ticket):
+        return render(
+            request,
+            "dashboard/onboarding.html",
+            {
+                "user_email": request.user.email,
+                "step": "confirm",
+                "claim_ticket": ticket,
+                "error_detail": "",
+            },
+        )
+    return render(
+        request,
+        "dashboard/onboarding.html",
+        {
+            "user_email": request.user.email,
+            "step": "link_error",
+            "claim_ticket": "",
+            "error_detail": (
+                "This setup link is invalid or has expired. Open a fresh "
+                "link from your robot's setup page and try again."
             ),
         },
     )

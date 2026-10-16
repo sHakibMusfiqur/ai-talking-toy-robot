@@ -12,12 +12,18 @@
   }
 
   ::selection {
-    background: rgba(233, 0, 63, 0.35);
+    background: rgba(201, 169, 106, 0.35);
   }
 
   :focus-visible {
-    outline: 2px solid theme("colors.info");
+    outline: 2px solid theme("colors.gold.DEFAULT");
     outline-offset: 2px;
+  }
+
+  /* Clear form validation: pairing inputs flagged by JS (aria-invalid) */
+  input[aria-invalid="true"] {
+    border-color: rgba(239, 68, 68, 0.6);
+    box-shadow: 0 0 0 3px rgba(239, 68, 68, 0.18);
   }
 }
 
@@ -33,22 +39,22 @@
   }
 
   .btn-primary {
-    @apply bg-gradient-to-br from-crimson to-crimson-light text-white hover:from-crimson-hover hover:to-crimson-light active:scale-[0.98];
+    @apply bg-gradient-to-br from-gold-deep to-gold text-[#15140F] hover:from-gold hover:to-gold-light active:scale-[0.98];
   }
 
   .btn-ghost {
     @apply border border-line-strong bg-transparent text-body hover:bg-raised;
   }
 
-  /* Command buttons — tall tiles, icon above uppercase label */
+  /* Command buttons â€” tall tiles, icon above uppercase label */
   .btn-command {
     @apply relative flex min-h-[86px] flex-col items-center justify-center gap-2.5 rounded-xl border border-line bg-raised px-4 py-4 text-center text-[13px] font-bold uppercase tracking-[0.08em] text-body transition-all duration-150;
   }
 
   .btn-command:hover {
-    border-color: rgba(233, 0, 63, 0.6);
-    background-color: rgba(233, 0, 63, 0.1);
-    box-shadow: 0 0 22px -8px rgba(233, 0, 63, 0.55);
+    border-color: rgba(201, 169, 106, 0.6);
+    background-color: rgba(201, 169, 106, 0.1);
+    box-shadow: 0 0 22px -8px rgba(201, 169, 106, 0.55);
     color: #fff;
   }
 
@@ -58,15 +64,15 @@
 
   .btn-command-accent {
     border-color: transparent;
-    background-image: linear-gradient(135deg, #e9003f 0%, #ff315c 100%);
-    color: #fff;
-    box-shadow: 0 0 28px -6px rgba(233, 0, 63, 0.6);
+    background-image: linear-gradient(135deg, #C9A96A 0%, #D9BD84 100%);
+    color: #15140F;
+    box-shadow: 0 0 28px -6px rgba(201, 169, 106, 0.6);
   }
 
   .btn-command-accent:hover {
     border-color: transparent;
-    background-image: linear-gradient(135deg, #e9003f 0%, #ff315c 100%);
-    box-shadow: 0 0 34px -6px rgba(233, 0, 63, 0.75);
+    background-image: linear-gradient(135deg, #C9A96A 0%, #D9BD84 100%);
+    box-shadow: 0 0 34px -6px rgba(201, 169, 106, 0.75);
   }
 
   .btn-command.is-busy {
@@ -112,7 +118,7 @@
   }
 
   .metric-ico-red {
-    @apply bg-crimson/15 text-crimson;
+    @apply bg-bad/15 text-bad;
   }
 
   .metric-ico-neutral {
@@ -137,7 +143,7 @@
   }
 
   .sig-bar.is-on {
-    @apply bg-crimson;
+    @apply bg-gold;
   }
 
   /* Status indicators */
@@ -191,15 +197,15 @@
   }
 
   .nav-item.nav-active {
-    background-image: linear-gradient(135deg, #e9003f 0%, #ff315c 100%);
-    @apply font-semibold text-white;
-    box-shadow: 0 8px 24px -8px rgba(233, 0, 63, 0.6),
-      inset 0 1px 0 0 rgba(255, 255, 255, 0.16);
+    background-image: linear-gradient(135deg, #A88B4C 0%, #C9A96A 100%);
+    @apply font-semibold text-[#15140F];
+    box-shadow: 0 8px 24px -8px rgba(201, 169, 106, 0.5),
+      inset 0 1px 0 0 rgba(255, 255, 255, 0.35);
   }
 
   .nav-item.nav-active:hover {
-    background-image: linear-gradient(135deg, #e9003f 0%, #ff315c 100%);
-    @apply text-white;
+    background-image: linear-gradient(135deg, #C9A96A 0%, #D9BD84 100%);
+    @apply text-[#15140F];
   }
 
   .nav-soon {
@@ -211,7 +217,7 @@
   }
 
   .logo-tile {
-    @apply grid h-9 w-9 shrink-0 place-items-center rounded-xl bg-gradient-to-br from-crimson to-crimson-light text-white shadow-crimson-glow;
+    @apply grid h-9 w-9 shrink-0 place-items-center rounded-xl bg-gradient-to-br from-gold-deep to-gold text-[#15140F] shadow-gold-glow;
   }
 
   /* Skeleton loaders (dark premium theme) */
@@ -236,7 +242,7 @@
     @apply text-bad;
   }
 
-  /* Safety: JS toggles the `hidden` attribute — utilities must never win */
+  /* Safety: JS toggles the `hidden` attribute â€” utilities must never win */
   [hidden] {
     display: none !important;
   }
@@ -307,15 +313,15 @@
 .app-header {
   background: radial-gradient(
       700px 140px at 85% -40%,
-      rgba(233, 0, 63, 0.16),
+      rgba(201, 169, 106, 0.16),
       transparent 70%
     ),
     radial-gradient(
       500px 130px at 60% -50%,
-      rgba(124, 58, 237, 0.1),
+      rgba(201, 169, 106, 0.05),
       transparent 70%
     ),
-    rgba(8, 9, 13, 0.88);
+    rgba(12, 13, 16, 0.88);
   backdrop-filter: blur(14px);
 }
 
@@ -325,7 +331,7 @@
 }
 
 .account-avatar {
-  @apply grid h-8 w-8 shrink-0 place-items-center rounded-full bg-gradient-to-br from-crimson to-crimson-light text-xs font-bold text-white;
+  @apply grid h-8 w-8 shrink-0 place-items-center rounded-full bg-gradient-to-br from-gold-deep to-gold text-xs font-bold text-[#15140F];
 }
 
 .account-dropdown {
@@ -351,12 +357,12 @@
 
 /* Status card + preview ambient red glow (reference screenshot) */
 .status-card {
-  box-shadow: 0 0 60px -24px rgba(233, 0, 63, 0.45),
+  box-shadow: 0 0 60px -24px rgba(201, 169, 106, 0.45),
     0 18px 40px -24px rgba(0, 0, 0, 0.8);
 }
 
 .preview-card {
-  box-shadow: 0 24px 60px -28px rgba(233, 0, 63, 0.4),
+  box-shadow: 0 24px 60px -28px rgba(201, 169, 106, 0.4),
     0 18px 40px -24px rgba(0, 0, 0, 0.85);
 }
 
@@ -371,7 +377,7 @@
   }
 }
 
-/* Toasts (ui/toast.js builds these) — kept outside @layer so purge never drops them */
+/* Toasts (ui/toast.js builds these) â€” kept outside @layer so purge never drops them */
 .toast-host {
   pointer-events: none;
   position: fixed;
@@ -393,7 +399,7 @@
   padding: 0.75rem 1rem;
   border-radius: 0.75rem;
   border: 1px solid rgba(255, 255, 255, 0.08);
-  background: rgba(24, 27, 36, 0.97);
+  background: rgba(26, 28, 34, 0.97);
   color: #f5f7fa;
   font-size: 0.875rem;
   line-height: 1.25rem;
@@ -415,7 +421,7 @@
   height: 0.625rem;
   flex-shrink: 0;
   border-radius: 9999px;
-  background: #e9003f;
+  background: #C9A96A;
 }
 
 .toast.is-success .toast-dot {
@@ -452,7 +458,7 @@
   }
 }
 
-/* Event timeline visuals — kept outside @layer so purge never drops them */
+/* Event timeline visuals â€” kept outside @layer so purge never drops them */
 .event-item::before {
   content: "";
   position: absolute;
@@ -479,7 +485,7 @@
 }
 
 .event-item[data-tone="hot"]::before {
-  background: theme("colors.crimson.DEFAULT");
+  background: theme("colors.bad");
 }
 
 .event-item[data-tone="info"]::before {

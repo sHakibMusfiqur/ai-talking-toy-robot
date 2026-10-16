@@ -97,6 +97,15 @@
         pairing_code: pairingCode,
         nickname: nickname || ""
       });
+    },
+    /* Redeem a device-issued claim ticket (Wi-Fi onboarding). The ticket is
+       the only robot-identifying input — no robot or owner id is ever sent;
+       ownership is derived server-side from the session. */
+    claimRobot: function (ticket, nickname) {
+      return request("POST", "/api/v1/devices/claim/", {
+        ticket: ticket,
+        nickname: nickname || ""
+      });
     }
   };
 })();

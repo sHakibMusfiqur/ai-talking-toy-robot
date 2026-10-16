@@ -10,6 +10,12 @@ urlpatterns = [
     path("devices/auth/challenge/", views.DeviceChallengeView.as_view(), name="api-device-challenge"),
     path("devices/auth/token/", views.DeviceTokenView.as_view(), name="api-device-token"),
     path("devices/me/", views.DeviceIdentityView.as_view(), name="api-device-me"),
+    # Claim routes must be registered before devices/<str:pk>/ so "claim"
+    # can never be swallowed by the generic detail pattern.
+    path("devices/claim-tickets/", views.DeviceClaimTicketView.as_view(), name="api-device-claim-ticket"),
+    path("devices/claim-tickets", views.DeviceClaimTicketView.as_view(), name="api-device-claim-ticket-raw"),
+    path("devices/claim/", views.RobotClaimView.as_view(), name="api-robot-claim"),
+    path("devices/claim", views.RobotClaimView.as_view(), name="api-robot-claim-raw"),
     path("devices/", views.AdminRobotListView.as_view(), name="api-devices"),
     path("devices/<str:pk>/", views.RobotDetailView.as_view(), name="api-robot-detail"),
     path(

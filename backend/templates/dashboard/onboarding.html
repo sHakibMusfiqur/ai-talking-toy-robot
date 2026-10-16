@@ -1,0 +1,85 @@
+{% extends "base.html" %}
+{% load static %}
+{% block title %}Set up your robot{% endblock %}
+{% block body %}
+<div class="flex min-h-screen flex-col items-center px-5 py-8">
+  <header class="mb-6 flex w-full max-w-xl items-center justify-between">
+    <span class="flex items-center gap-2 text-sm font-bold tracking-wide">
+      <span class="h-7 w-7 rounded-lg bg-gold shadow-gold-glow" aria-hidden="true"></span>
+      RoboPanel
+    </span>
+    <a href="/dashboard/" class="btn btn-ghost px-4 text-xs">Back to dashboard</a>
+  </header>
+
+  <main class="w-full max-w-xl glass rounded-3xl p-7">
+    {% if step == "instructions" %}
+    <section aria-labelledby="onboard-title">
+      <p class="text-xs uppercase tracking-[0.25em] text-faint">Wi-Fi setup</p>
+      <h1 id="onboard-title" class="font-display mt-2 text-2xl font-semibold tracking-tight">Connect your robot to Wi-Fi</h1>
+      <p class="mt-2 text-sm text-muted">A short setup on this device links the robot to your account privately.</p>
+
+      <ol class="mt-5 flex list-none flex-col gap-4 p-0">
+        <li class="flex gap-3">
+          <span class="grid h-7 w-7 shrink-0 place-items-center rounded-full bg-gold/15 text-xs font-bold text-gold" aria-hidden="true">1</span>
+          <span class="text-sm leading-6 text-body">On this device, join your robot&rsquo;s setup network (it looks like <span class="font-mono">RoboPanel-Setup-…</span>). The password is on your robot&rsquo;s label.</span>
+        </li>
+        <li class="flex gap-3">
+          <span class="grid h-7 w-7 shrink-0 place-items-center rounded-full bg-gold/15 text-xs font-bold text-gold" aria-hidden="true">2</span>
+          <span class="text-sm leading-6 text-body">The setup page opens (or browse to <span class="font-mono">http://192.168.4.1</span>). Pick your home Wi-Fi and enter its password.</span>
+        </li>
+        <li class="flex gap-3">
+          <span class="grid h-7 w-7 shrink-0 place-items-center rounded-full bg-gold/15 text-xs font-bold text-gold" aria-hidden="true">3</span>
+          <span class="text-sm leading-6 text-body">When the robot is connected, its page shows <span class="font-semibold">Add robot to my account</span> — tap it and you&rsquo;ll return here to finish.</span>
+        </li>
+      </ol>
+
+      <p class="mt-5 rounded-xl border border-line bg-raised px-4 py-3 text-xs leading-5 text-muted">
+        Sign in keeps your robot visible only to your account. The setup link is single-use and expires after 10 minutes.
+      </p>
+      <a href="/dashboard/" class="btn btn-ghost mt-5 w-full">Back to dashboard</a>
+    </section>
+
+    {% elif step == "confirm" %}
+    <section id="claim-confirm" aria-labelledby="confirm-title" data-claim-ticket="{{ claim_ticket }}">
+      <p class="text-xs uppercase tracking-[0.25em] text-faint">Last step</p>
+      <h1 id="confirm-title" class="font-display mt-2 text-2xl font-semibold tracking-tight">Add this robot to your account?</h1>
+      <p class="mt-2 text-sm text-muted">It will be linked to <span class="font-semibold text-body">{{ user_email }}</span> and visible only to you.</p>
+
+      <div class="mt-5">
+        <label for="claim-nickname" class="mb-1.5 block text-sm text-muted">Nickname <span class="text-faint">(optional)</span></label>
+        <input id="claim-nickname" name="nickname" type="text" maxlength="100" autocomplete="off"
+               placeholder="e.g. Living room buddy"
+               class="min-h-[44px] w-full rounded-xl border border-line bg-raised px-4 text-body placeholder:text-faint">
+      </div>
+
+      <p id="claim-error" class="hidden mt-4 rounded-xl border border-bad/40 bg-bad/10 px-4 py-3 text-sm text-bad" role="alert"></p>
+
+      <button id="claim-submit" type="button" class="btn btn-primary mt-5 w-full">Add robot</button>
+      <p class="mt-3 text-center text-xs text-faint">Not at your robot&rsquo;s setup page? <a href="{% url 'onboarding' %}" class="text-gold hover:underline">See the setup steps</a>.</p>
+    </section>
+
+    {% elif step == "link_error" %}
+    <section aria-labelledby="error-title" class="text-center">
+      <span class="mx-auto grid h-12 w-12 place-items-center rounded-full bg-bad/10 text-xl text-bad" aria-hidden="true">!</span>
+      <h1 id="error-title" class="font-display mt-3 text-2xl font-semibold tracking-tight">Link not valid</h1>
+      <p class="mt-2 text-sm text-muted" role="alert">{{ error_detail }}</p>
+      <a href="{% url 'onboarding' %}" class="btn btn-ghost mt-5 w-full">See the setup steps</a>
+      <a href="/dashboard/" class="btn btn-primary mt-3 w-full">Back to dashboard</a>
+    </section>
+    {% endif %}
+
+    <!-- Success screen (shown by JS after a successful claim; the ticket is
+         stripped from the URL at that moment and never stored). -->
+    <section id="claim-success" class="hidden text-center" tabindex="-1" aria-live="polite">
+      <span class="mx-auto grid h-12 w-12 place-items-center rounded-full bg-ok/10 text-xl text-ok" aria-hidden="true">&#10003;</span>
+      <h2 class="font-display mt-3 text-2xl font-semibold tracking-tight">Robot added</h2>
+      <p id="claim-success-name" class="mt-1 truncate text-sm text-muted"></p>
+      <a href="/dashboard/" class="btn btn-primary mt-5 w-full">Open dashboard</a>
+    </section>
+  </main>
+</div>
+{% endblock %}
+{% block scripts %}
+<script src="{% static 'js/api.js' %}?v={{ asset_version }}"></script>
+<script src="{% static 'js/onboarding.js' %}?v={{ asset_version }}"></script>
+{% endblock %}

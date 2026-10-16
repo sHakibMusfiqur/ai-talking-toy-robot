@@ -180,6 +180,7 @@
 
     if (codeInput) {
       codeInput.addEventListener("input", function () {
+        codeInput.removeAttribute("aria-invalid");
         codeInput.value = codeInput.value
           .toUpperCase()
           .replace(/[^A-Z0-9]/g, "")
@@ -194,6 +195,7 @@
       var nickname = (nicknameInput.value || "").trim().slice(0, 100);
 
       if (code.length !== 8) {
+        codeInput.setAttribute("aria-invalid", "true");
         showError("Enter the 8-character pairing code shown by your robot.");
         codeInput.focus();
         return;
@@ -243,6 +245,7 @@
           var status = err && err.status;
           var body = err && err.data;
           if (status === 400 && body && typeof body === "object") {
+            codeInput.setAttribute("aria-invalid", "true");
             if (typeof body.detail === "string") {
               showError(body.detail);
               return;

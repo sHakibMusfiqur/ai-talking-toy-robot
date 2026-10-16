@@ -8,6 +8,29 @@ menu "RoboPanel Robot"
         string "Wi-Fi password (local sdkconfig only - never commit a real value)"
         default ""
 
+    config ROBOT_SETUP_AP_SSID_PREFIX
+        string "Setup network name prefix (device id is appended)"
+        default "RoboPanel-Setup"
+
+    config ROBOT_SETUP_AP_PASSWORD
+        string "Setup network WPA2 password (min 8 chars; empty = generated, shown on serial)"
+        default ""
+
+    config ROBOT_WIFI_SETUP_FALLBACK_MS
+        int "Wrong-password retry window before setup mode (ms)"
+        range 5000 600000
+        default 60000
+
+    config ROBOT_FACTORY_RESET_GPIO
+        int "Factory-reset GPIO (active-low with pull-up; held at boot erases saved Wi-Fi; -1 = disabled)"
+        range -1 48
+        default -1
+
+    config ROBOT_SETUP_LED_GPIO
+        int "Setup-mode indicator LED GPIO (active-high; -1 = not wired; reserved for hardware bring-up)"
+        range -1 48
+        default -1
+
     config ROBOT_BACKEND_HOST
         string "Backend host (Django)"
         default "192.168.1.100"

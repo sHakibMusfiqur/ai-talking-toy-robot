@@ -24,6 +24,9 @@ static const char *TAG = "backend_client";
 #define CONV_UPLOAD_MAX_BODY_BYTES (1024 * 1024 + 16 * 1024)
 #define CONV_UPLOAD_TIMEOUT_MS 20000
 
+#define DEVICE_CLAIM_TICKETS_PATH "/api/v1/devices/claim-tickets/"
+#define CLAIM_URL_PATH "/onboarding/claim/"
+
 typedef struct {
     char *buf;
     size_t cap;
@@ -79,7 +82,8 @@ static esp_err_t build_url(char *out, size_t out_len, const char *path)
     return ESP_OK;
 }
 
-static esp_err_t post_json(const char *path, const char *body, int *status_out,
+static esp_err_t post_json(const char *path, const char *body,
+                           const char *auth_token, int *status_out,
                            char *resp_out, size_t resp_out_len)
 {
     char url[256];
@@ -124,6 +128,12 @@ static esp_err_t post_json(const char *path, const char *body, int *status_out,
         return ESP_ERR_NO_MEM;
     }
     esp_http_client_set_header(client, "Content-Type", "application/json");
+    if (auth_token != NULL && auth_token[0] != '\0') {
+        char auth_header[TOKEN_MAX + 16];
+        snprintf(auth_header, sizeof(auth_header), "Bearer %s", auth_token);
+        esp_http_client_set_header(client, "Authorization", auth_header);
+        memset(auth_header, 0, sizeof(auth_header));
+    }
     esp_http_client_set_post_field(client, body, strlen(body));
 
     err = esp_http_client_perform(client);
@@ -179,7 +189,7 @@ esp_err_t backend_register(char *pairing_code_out, size_t pairing_code_len)
 
     static char response[HTTP_RESPONSE_MAX];
     int status = 0;
-    esp_err_t err = post_json("/api/v1/devices/register/", body, &status,
+    esp_err_t err = post_json("/api/v1/devices/register/", body, NULL, &status,
                               response, sizeof(response));
     cJSON_free(body);
     if (err != ESP_OK) {
@@ -221,8 +231,8 @@ esp_err_t backend_refresh_token(void)
     static char response[HTTP_RESPONSE_MAX];
     int status = 0;
     esp_err_t err =
-        post_json("/api/v1/devices/auth/challenge/", body, &status, response,
-                  sizeof(response));
+        post_json("/api/v1/devices/auth/challenge/", body, NULL, &status,
+                  response, sizeof(response));
     cJSON_free(body);
     if (err != ESP_OK || status != 200) {
         ESP_LOGW(TAG, "challenge request failed (HTTP %d)", status);
@@ -269,8 +279,8 @@ esp_err_t backend_refresh_token(void)
         return ESP_ERR_NO_MEM;
     }
 
-    err = post_json("/api/v1/devices/auth/token/", body, &status, response,
-                    sizeof(response));
+    err = post_json("/api/v1/devices/auth/token/", body, NULL, &status,
+                    response, sizeof(response));
     cJSON_free(body);
     if (err != ESP_OK || status != 200) {
         ESP_LOGW(TAG, "auth exchange failed (HTTP %d)", status);
@@ -302,6 +312,79 @@ const char *backend_device_token(void)
 int backend_token_expires_in(void)
 {
     return s_token_expires_in;
+}
+
+esp_err_t backend_create_claim_ticket(char *ticket_out, size_t ticket_len)
+{
+    if (ticket_out == NULL || ticket_len == 0) {
+        return ESP_ERR_INVALID_ARG;
+    }
+    ticket_out[0] = '\0';
+    if (s_token[0] == '\0') {
+        return ESP_ERR_INVALID_STATE;
+    }
+
+    for (int attempt = 0; attempt < 2; ++attempt) {
+        cJSON *root = cJSON_CreateObject();
+        if (root == NULL) {
+            return ESP_ERR_NO_MEM;
+        }
+        char *body = cJSON_PrintUnformatted(root);
+        cJSON_Delete(root);
+        if (body == NULL) {
+            return ESP_ERR_NO_MEM;
+        }
+
+        static char response[HTTP_RESPONSE_MAX];
+        int status = 0;
+        esp_err_t err = post_json(DEVICE_CLAIM_TICKETS_PATH, body, s_token,
+                                  &status, response, sizeof(response));
+        cJSON_free(body);
+        if (err != ESP_OK) {
+            return err;
+        }
+        if (status == 401 && attempt == 0) {
+            if (backend_refresh_token() != ESP_OK) {
+                return ESP_FAIL;
+            }
+            continue;
+        }
+        if (status != 201) {
+            ESP_LOGW(TAG, "claim ticket request rejected (HTTP %d)", status);
+            return ESP_FAIL;
+        }
+
+        cJSON *parsed = cJSON_Parse(response);
+        if (parsed == NULL) {
+            return ESP_FAIL;
+        }
+        const cJSON *ticket = cJSON_GetObjectItem(parsed, "ticket");
+        bool ok = cJSON_IsString(ticket) && ticket->valuestring[0] != '\0';
+        if (ok) {
+            strlcpy(ticket_out, ticket->valuestring, ticket_len);
+        }
+        cJSON_Delete(parsed);
+        if (!ok) {
+            return ESP_FAIL;
+        }
+        ESP_LOGI(TAG, "claim ticket issued");
+        return ESP_OK;
+    }
+    return ESP_FAIL;
+}
+
+esp_err_t backend_claim_url(const char *ticket, char *out, size_t out_len)
+{
+    if (ticket == NULL || ticket[0] == '\0' || out == NULL || out_len == 0) {
+        return ESP_ERR_INVALID_ARG;
+    }
+    char path[160];
+    int written =
+        snprintf(path, sizeof(path), CLAIM_URL_PATH "?ticket=%s", ticket);
+    if (written <= 0 || (size_t)written >= sizeof(path)) {
+        return ESP_ERR_INVALID_SIZE;
+    }
+    return build_url(out, out_len, path);
 }
 
 esp_err_t backend_upload_audio_turn(const char *body, size_t body_len,

@@ -5,6 +5,7 @@
 #include "actions.h"
 #include "backend_client.h"
 #include "conversation.h"
+#include "driver/gpio.h"
 #include "esp_log.h"
 #include "esp_timer.h"
 #include "freertos/FreeRTOS.h"
@@ -15,6 +16,7 @@
 #include "sdkconfig.h"
 #include "telemetry.h"
 #include "wifi.h"
+#include "wifi_provision.h"
 
 static const char *TAG = "app_main";
 
@@ -23,6 +25,7 @@ static const char *TAG = "app_main";
 #define CONNECT_WAIT_MS 15000
 #define WIFI_WAIT_MS 30000
 #define TOKEN_REFRESH_MIN_S 60
+#define AUTH_FAILURE_PROVISION_THRESHOLD 3
 
 typedef enum {
     CONN_WIFI_DISCONNECTED,
@@ -103,6 +106,30 @@ static int64_t token_refresh_due_us(int expires_in)
     return (int64_t)effective * 1000000;
 }
 
+static void check_factory_reset(void)
+{
+    if (CONFIG_ROBOT_FACTORY_RESET_GPIO < 0) {
+        return;
+    }
+    gpio_config_t io = {
+        .pin_bit_mask = 1ULL << CONFIG_ROBOT_FACTORY_RESET_GPIO,
+        .mode = GPIO_MODE_INPUT,
+        .pull_up_en = GPIO_PULLUP_ENABLE,
+        .pull_down_en = GPIO_PULLDOWN_DISABLE,
+        .intr_type = GPIO_INTR_DISABLE,
+    };
+    if (gpio_config(&io) != ESP_OK) {
+        return;
+    }
+    if (gpio_get_level(CONFIG_ROBOT_FACTORY_RESET_GPIO) == 0) {
+        ESP_LOGW(TAG,
+                 "factory-reset button held at boot, erasing saved Wi-Fi "
+                 "(GPIO %d)",
+                 CONFIG_ROBOT_FACTORY_RESET_GPIO);
+        wifi_erase_credentials();
+    }
+}
+
 void app_main(void)
 {
     esp_err_t err = nvs_flash_init();
@@ -128,11 +155,25 @@ void app_main(void)
         return;
     }
 
+    check_factory_reset();
+
+    if (!wifi_has_saved_credentials()) {
+        provision_run("no_credentials", false);
+        return;
+    }
+
     err = wifi_start();
     if (err != ESP_OK) {
         ESP_LOGE(TAG, "Wi-Fi unavailable (%s), halted", esp_err_to_name(err));
         return;
     }
+
+    if (!wifi_wait_connected(CONFIG_ROBOT_WIFI_SETUP_FALLBACK_MS) &&
+        wifi_auth_failure_count() >= AUTH_FAILURE_PROVISION_THRESHOLD) {
+        provision_run("auth_failure", true);
+        return;
+    }
+
     telemetry_set_state("BOOT");
 
     ensure_registered();

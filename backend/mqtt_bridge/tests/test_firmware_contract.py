@@ -270,23 +270,28 @@ def test_firmware_never_logs_credentials():
 
 def test_pairing_code_is_printed_exactly_once():
     """The pairing code is the one credential that must reach the serial
-    console (first-boot pairing). It may be formatted by exactly one log
-    statement in the whole firmware — the single-use banner."""
+    console (first-boot pairing, plus the Wi-Fi provisioning fallback when
+    the claim link could not be created). Each first-setup banner prints it
+    at most once and no other file may print it at all."""
     printers = []
     for path in _c_sources():
         for number, statement in _log_statements(path):
             if "pairing_code" in statement or "Pairing code" in statement:
                 printers.append((path.name, number, statement))
-    assert len(printers) == 1, (
-        f"pairing code printed by {len(printers)} log statements: "
-        f"{[(n, l) for n, l, _ in printers]}"
-    )
-    name, _, statement = printers[0]
-    assert name == "app_main.c", f"unexpected pairing printer: {name}"
-    assert "printf(" in statement and "single use" in statement, (
-        "pairing code must come from the single-use banner: "
-        + " ".join(statement.split())
-    )
+
+    allowed = {"app_main.c", "wifi_provision.c"}
+    by_file = {}
+    for name, number, statement in printers:
+        assert name in allowed, f"unexpected pairing printer: {name}:{number}"
+        assert "printf(" in statement and "single use" in statement, (
+            "pairing code must come from a single-use banner: "
+            + " ".join(statement.split())
+        )
+        by_file.setdefault(name, []).append(number)
+
+    assert "app_main.c" in by_file, "first-boot pairing banner missing"
+    for name, lines in by_file.items():
+        assert len(lines) == 1, f"{name} prints the pairing code {len(lines)}x"
 
 
 def test_tracked_sdkconfig_contains_no_secrets():

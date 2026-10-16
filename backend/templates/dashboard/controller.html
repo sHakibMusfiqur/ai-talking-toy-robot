@@ -1,6 +1,6 @@
 {% extends "base.html" %}
 {% load static %}
-{% block title %}{{ display_name }} · Controller{% endblock %}
+{% block title %}{{ display_name }} Â· Controller{% endblock %}
 {% block body %}
 <div class="flex min-h-screen">
   {% url 'dashboard-controller' robot_id as controller_href %}
@@ -16,7 +16,7 @@
 
       <div class="flex flex-col gap-5 xl:flex-row xl:items-start xl:justify-between">
         <div class="min-w-0">
-          <h1 class="m-0 text-[34px] font-bold leading-tight tracking-tight">Robot Controller</h1>
+          <h1 class="font-display m-0 text-[34px] font-bold leading-tight tracking-tight">Robot Controller</h1>
           <p class="mb-0 mt-2 text-sm text-muted">Control and monitor your AI talking toy robot</p>
         </div>
 
@@ -92,7 +92,7 @@
                 </div>
                 <p id="state-current" class="m-0 text-2xl font-bold tracking-tight">&mdash;</p>
                 <svg id="state-spark" viewBox="0 0 100 42" preserveAspectRatio="none" class="h-10 w-full" aria-hidden="true">
-                  <polyline id="state-spark-line" fill="none" class="stroke-crimson" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" vector-effect="non-scaling-stroke" points=""/>
+                  <polyline id="state-spark-line" fill="none" class="stroke-gold" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" vector-effect="non-scaling-stroke" points=""/>
                 </svg>
               </div>
               <div class="glass flex flex-col gap-3 rounded-2xl p-5">
@@ -120,7 +120,7 @@
                   <svg viewBox="0 0 24 24" class="h-6 w-6" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="2" y="7" width="20" height="11" rx="5.5"/><path d="M7 12.5h3M8.5 11v3M15.5 11.5h.01M17.5 13.5h.01"/></svg>
                 </span>
                 <div class="min-w-0">
-                  <h2 id="controller-heading" class="m-0 text-lg font-semibold">Robot Actions</h2>
+                  <h2 id="controller-heading" class="font-display m-0 text-xl font-semibold tracking-tight">Robot Actions</h2>
                   <p class="m-0 mt-0.5 text-xs text-muted">Send a semantic command to your robot</p>
                 </div>
               </div>
@@ -152,9 +152,9 @@
               <span class="metric-ico metric-ico-red rounded-2xl" aria-hidden="true">
                 <svg viewBox="0 0 24 24" class="h-5 w-5" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M14 3H7a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V8z"/><path d="M14 3v5h5M9 13h6M9 17h4"/></svg>
               </span>
-              <h2 id="events-heading" class="m-0 text-lg font-semibold">Recent Events</h2>
+              <h2 id="events-heading" class="font-display m-0 text-xl font-semibold tracking-tight">Recent Events</h2>
             </div>
-            <span class="rounded-full bg-crimson px-3 py-1 text-[11px] font-semibold uppercase tracking-[0.12em] text-white">Live</span>
+            <span class="rounded-full bg-gold px-3 py-1 text-[11px] font-semibold uppercase tracking-[0.12em] text-[#15140F]">Live</span>
           </div>
           <div id="events-block" data-state="loading" class="flex-1">
             <div id="events-loading" role="status">
@@ -182,7 +182,7 @@
               <span class="metric-ico metric-ico-red rounded-2xl" aria-hidden="true">
                 <svg viewBox="0 0 24 24" class="h-5 w-5" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="2"/><path d="M8.5 8.5a5 5 0 0 0 0 7M15.5 15.5a5 5 0 0 0 0-7M5.5 5.5a9 9 0 0 0 0 13M18.5 18.5a9 9 0 0 0 0-13"/></svg>
               </span>
-              <h2 id="sensors-heading" class="m-0 text-lg font-semibold">Sensors</h2>
+              <h2 id="sensors-heading" class="font-display m-0 text-xl font-semibold tracking-tight">Sensors</h2>
             </div>
             <span class="rounded-full border border-line-strong bg-raised px-3 py-1 text-[11px] font-semibold uppercase tracking-[0.15em] text-muted">Current</span>
           </div>
@@ -212,7 +212,7 @@
               <span class="metric-ico metric-ico-red rounded-2xl" aria-hidden="true">
                 <svg viewBox="0 0 24 24" class="h-5 w-5" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3.2"/><path d="M12 2.8v2.4M12 18.8v2.4M2.8 12h2.4M18.8 12h2.4M5.5 5.5l1.7 1.7M16.8 16.8l1.7 1.7M18.5 5.5l-1.7 1.7M7.2 16.8l-1.7 1.7"/></svg>
               </span>
-              <h2 id="config-heading" class="m-0 text-lg font-semibold">Configuration</h2>
+              <h2 id="config-heading" class="font-display m-0 text-xl font-semibold tracking-tight">Configuration</h2>
             </div>
             <span class="rounded-full border border-line-strong bg-raised px-3 py-1 text-[11px] font-semibold uppercase tracking-[0.15em] text-muted">Read-only</span>
           </div>

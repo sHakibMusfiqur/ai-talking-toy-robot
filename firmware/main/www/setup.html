@@ -1,0 +1,441 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="robots" content="noindex">
+<title>Set up your robot</title>
+<style>
+  :root {
+    --bg: #0C0D10;
+    --card: #1A1C22;
+    --raised: #23252D;
+    --line: #2C2F38;
+    --ink: #F4F0E7;
+    --muted: #ABA79C;
+    --faint: #77746C;
+    --gold: #C9A96A;
+    --gold-hover: #D9BD84;
+    --gold-deep: #A88B4C;
+    --bad: #E06060;
+    --serif: "Iowan Old Style", "Palatino Linotype", Palatino, "Book Antiqua", Georgia, serif;
+    --sans: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+  }
+  * { box-sizing: border-box; }
+  html, body { margin: 0; padding: 0; }
+  body {
+    background: var(--bg);
+    background-image:
+      radial-gradient(900px 420px at 80% -10%, rgba(201, 169, 106, 0.10), transparent 60%),
+      radial-gradient(700px 380px at -10% 30%, rgba(201, 169, 106, 0.05), transparent 60%);
+    color: var(--ink);
+    font-family: var(--sans);
+    min-height: 100vh;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    padding: 24px 16px 40px;
+  }
+  .brand {
+    font-family: var(--serif);
+    font-size: 20px;
+    letter-spacing: 0.04em;
+    color: var(--gold);
+    margin: 8px 0 28px;
+    display: flex;
+    align-items: center;
+    gap: 10px;
+  }
+  .brand .dot { width: 10px; height: 10px; border-radius: 50%; background: var(--gold); box-shadow: 0 0 12px rgba(201,169,106,.7); }
+  .card {
+    width: 100%;
+    max-width: 440px;
+    background: var(--card);
+    border: 1px solid var(--line);
+    border-radius: 18px;
+    padding: 28px 24px 24px;
+    box-shadow: 0 24px 60px rgba(0,0,0,.45);
+  }
+  h1 {
+    font-family: var(--serif);
+    font-weight: 600;
+    font-size: 26px;
+    line-height: 1.2;
+    margin: 0 0 8px;
+  }
+  .sub { color: var(--muted); font-size: 15px; line-height: 1.5; margin: 0 0 20px; }
+  .note {
+    background: rgba(201, 169, 106, 0.10);
+    border: 1px solid rgba(201, 169, 106, 0.35);
+    color: var(--ink);
+    border-radius: 10px;
+    padding: 10px 12px;
+    font-size: 14px;
+    line-height: 1.45;
+    margin: 0 0 18px;
+    display: none;
+  }
+  label { display: block; font-size: 13px; font-weight: 600; letter-spacing: .04em; text-transform: uppercase; color: var(--muted); margin: 0 0 6px; }
+  input {
+    width: 100%;
+    background: var(--bg);
+    border: 1px solid var(--line);
+    border-radius: 12px;
+    color: var(--ink);
+    font-size: 16px;
+    padding: 13px 14px;
+    outline: none;
+    margin-bottom: 4px;
+  }
+  input:focus-visible { border-color: var(--gold); box-shadow: 0 0 0 3px rgba(201, 169, 106, 0.28); }
+  input[aria-invalid="true"] { border-color: var(--bad); box-shadow: 0 0 0 3px rgba(224, 96, 96, 0.22); }
+  .err { color: var(--bad); font-size: 13px; min-height: 18px; margin: 2px 0 10px; }
+  .field { margin-bottom: 6px; }
+  .net-list { display: flex; flex-wrap: wrap; gap: 8px; margin: 4px 0 16px; min-height: 4px; }
+  .net {
+    background: var(--raised);
+    border: 1px solid var(--line);
+    color: var(--ink);
+    border-radius: 999px;
+    font-size: 13px;
+    padding: 7px 12px;
+    cursor: pointer;
+    max-width: 100%;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+  .net:hover { border-color: var(--gold-deep); }
+  .net.on { background: rgba(201,169,106,.18); border-color: var(--gold); color: var(--gold-hover); }
+  .net-note { font-size: 12px; color: var(--faint); margin: -8px 0 14px; }
+  .btn {
+    display: block;
+    width: 100%;
+    border: 0;
+    border-radius: 12px;
+    font-size: 16px;
+    font-weight: 700;
+    padding: 14px 16px;
+    cursor: pointer;
+    font-family: var(--sans);
+    text-align: center;
+    text-decoration: none;
+  }
+  .btn-primary {
+    background: linear-gradient(180deg, var(--gold-hover), var(--gold) 55%, var(--gold-deep));
+    color: #15140F;
+    box-shadow: 0 10px 24px rgba(201, 169, 106, 0.22);
+  }
+  .btn-primary:hover { filter: brightness(1.05); }
+  .btn-primary:disabled { opacity: .6; cursor: default; }
+  .btn-ghost {
+    background: transparent;
+    border: 1px solid var(--line);
+    color: var(--ink);
+    font-weight: 600;
+  }
+  .btn-ghost:hover { border-color: var(--gold-deep); }
+  :focus-visible { outline: 3px solid var(--gold); outline-offset: 2px; }
+  .screen { display: none; }
+  .screen.on { display: block; }
+  .spin-wrap { display: flex; flex-direction: column; align-items: center; text-align: center; padding: 12px 0 4px; }
+  .spin {
+    width: 44px; height: 44px;
+    border-radius: 50%;
+    border: 3px solid rgba(201,169,106,.25);
+    border-top-color: var(--gold);
+    animation: spin 0.9s linear infinite;
+    margin-bottom: 18px;
+  }
+  @keyframes spin { to { transform: rotate(360deg); } }
+  .center { text-align: center; }
+  .big { font-family: var(--serif); font-size: 24px; margin: 6px 0 8px; }
+  .ok-ring {
+    width: 56px; height: 56px; border-radius: 50%;
+    background: rgba(201,169,106,.16);
+    border: 2px solid var(--gold);
+    color: var(--gold);
+    display: flex; align-items: center; justify-content: center;
+    font-size: 26px; margin: 0 auto 14px;
+  }
+  .link-box {
+    background: var(--bg);
+    border: 1px dashed var(--line);
+    border-radius: 10px;
+    padding: 10px 12px;
+    font-size: 13px;
+    color: var(--muted);
+    word-break: break-all;
+    margin: 12px 0 16px;
+    display: none;
+  }
+  .stack > * + * { margin-top: 12px; }
+  footer { margin-top: 22px; font-size: 12px; color: var(--faint); text-align: center; max-width: 440px; line-height: 1.5; }
+  @media (prefers-reduced-motion: reduce) { .spin { animation-duration: 2s; } }
+</style>
+</head>
+<body>
+  <div class="brand"><span class="dot" aria-hidden="true"></span>RoboPanel</div>
+
+  <main class="card">
+    <!-- Step 1: credentials -->
+    <section id="screen-form" class="screen on" aria-labelledby="form-title">
+      <h1 id="form-title">Set up your robot&rsquo;s Wi-Fi</h1>
+      <p class="sub">Choose your home network and enter its password so your robot can stay connected.</p>
+      <div id="reason-note" class="note" role="status"></div>
+
+      <label for="ssid">Network name</label>
+      <div class="field">
+        <input id="ssid" name="ssid" type="text" maxlength="32" autocomplete="off"
+               autocapitalize="off" spellcheck="false" placeholder="Wi-Fi network name">
+      </div>
+      <div id="net-list" class="net-list" aria-label="Networks found"></div>
+      <p id="net-note" class="net-note">Looking for nearby networks&hellip;</p>
+
+      <label for="password">Password</label>
+      <div class="field">
+        <input id="password" name="password" type="password" maxlength="63"
+               autocomplete="off" placeholder="Wi-Fi password (8+ characters)">
+      </div>
+      <div id="form-err" class="err" role="alert"></div>
+
+      <button id="connect-btn" class="btn btn-primary" type="button">Connect robot</button>
+    </section>
+
+    <!-- Step 2: connecting -->
+    <section id="screen-wait" class="screen" aria-labelledby="wait-title">
+      <div class="spin-wrap">
+        <div class="spin" aria-hidden="true"></div>
+        <div class="big" id="wait-title">Connecting&hellip;</div>
+        <p class="sub" id="wait-copy">Joining your network. This takes about 30 seconds.</p>
+        <p class="sub" aria-live="polite" id="wait-status"></p>
+      </div>
+    </section>
+
+    <!-- Step 3: failure -->
+    <section id="screen-error" class="screen" aria-labelledby="error-title">
+      <div class="center">
+        <div class="ok-ring" style="border-color:#E06060;background:rgba(224,96,96,.14);color:#E06060" aria-hidden="true">!</div>
+        <div class="big" id="error-title">Couldn&rsquo;t connect</div>
+        <p class="sub" id="error-copy" role="alert"></p>
+      </div>
+      <div class="stack">
+        <button id="retry-btn" class="btn btn-primary" type="button">Try again</button>
+      </div>
+    </section>
+
+    <!-- Step 4: success -->
+    <section id="screen-success" class="screen" aria-labelledby="success-title">
+      <div class="center">
+        <div class="ok-ring" aria-hidden="true">&#10003;</div>
+        <div class="big" id="success-title">Your robot is online</div>
+        <p class="sub" id="success-copy">One last step: add the robot to your account.</p>
+      </div>
+      <div id="claim-area" class="stack">
+        <a id="claim-btn" class="btn btn-primary" href="#">Add robot to my account</a>
+        <div id="claim-link-box" class="link-box"></div>
+      </div>
+      <div class="stack" style="margin-top:12px">
+        <button id="finish-btn" class="btn btn-ghost" type="button">Finish setup</button>
+      </div>
+    </section>
+
+    <!-- Step 5: done -->
+    <section id="screen-done" class="screen" aria-labelledby="done-title">
+      <div class="center">
+        <div class="ok-ring" aria-hidden="true">&#10003;</div>
+        <div class="big" id="done-title">All set</div>
+        <p class="sub">Your robot is restarting onto your Wi-Fi. You can close this page now.</p>
+      </div>
+    </section>
+  </main>
+
+  <footer>Your robot forgets this password after it is saved. This setup page only exists while your robot is in setup mode.</footer>
+
+<script>
+(function () {
+  "use strict";
+  var TOKEN = "__PROVISION_TOKEN__";
+  var REASON = "__PROVISION_REASON__";
+  var SAVED_SSID = "__SAVED_SSID__";
+
+  var $ = function (id) { return document.getElementById(id); };
+  var screens = ["form", "wait", "error", "success", "done"];
+  var pollTimer = null;
+  var busy = false;
+
+  function show(name) {
+    screens.forEach(function (s) {
+      var el = $("screen-" + s);
+      if (el) { el.classList.toggle("on", s === name); }
+    });
+  }
+
+  function setInvalid(input, isBad) {
+    if (isBad) { input.setAttribute("aria-invalid", "true"); }
+    else { input.removeAttribute("aria-invalid"); }
+  }
+
+  if (REASON === "auth_failure") {
+    var note = $("reason-note");
+    note.textContent = "The saved Wi-Fi password was rejected. Enter the current password to try again.";
+    note.style.display = "block";
+    if (SAVED_SSID) { $("ssid").value = SAVED_SSID; }
+  }
+
+  function loadNetworks() {
+    fetch("/api/scan").then(function (r) { return r.json(); }).then(function (list) {
+      var wrap = $("net-list");
+      wrap.textContent = "";
+      if (!Array.isArray(list) || list.length === 0) {
+        $("net-note").textContent = "No networks found — type the name instead.";
+        return;
+      }
+      $("net-note").textContent = "Tap your network, or type the name below.";
+      list.forEach(function (ssid) {
+        var b = document.createElement("button");
+        b.type = "button";
+        b.className = "net";
+        b.textContent = ssid;
+        b.addEventListener("click", function () {
+          $("ssid").value = ssid;
+          setInvalid($("ssid"), false);
+          Array.prototype.forEach.call(wrap.children, function (c) { c.classList.remove("on"); });
+          b.classList.add("on");
+          $("password").focus();
+        });
+        wrap.appendChild(b);
+      });
+    }).catch(function () {
+      $("net-note").textContent = "Couldn't scan — type the network name below.";
+    });
+  }
+
+  function submitWifi() {
+    if (busy) { return; }
+    var ssid = $("ssid").value.trim();
+    var pass = $("password").value;
+    var ok = true;
+    if (ssid.length < 1 || ssid.length > 32) { setInvalid($("ssid"), true); ok = false; }
+    else { setInvalid($("ssid"), false); }
+    if (pass.length < 8 || pass.length > 63) { setInvalid($("password"), true); ok = false; }
+    else { setInvalid($("password"), false); }
+    if (!ok) {
+      $("form-err").textContent = "Enter the network name and its password (8+ characters).";
+      return;
+    }
+    $("form-err").textContent = "";
+    busy = true;
+    var btn = $("connect-btn");
+    btn.disabled = true;
+    btn.textContent = "Connecting\u2026";
+
+    fetch("/api/wifi", {
+      method: "POST",
+      headers: { "Content-Type": "application/json", "X-Provision-Token": TOKEN },
+      body: JSON.stringify({ ssid: ssid, password: pass })
+    }).then(function (r) {
+      if (!r.ok && r.status !== 409) { throw new Error("submit"); }
+      $("password").value = "";
+      $("wait-copy").textContent = "Joining " + ssid + ". This takes about 30 seconds.";
+      $("wait-status").textContent = "";
+      show("wait");
+      startPoll();
+      busy = false;
+      btn.disabled = false;
+      btn.textContent = "Connect robot";
+    }).catch(function () {
+      busy = false;
+      btn.disabled = false;
+      btn.textContent = "Connect robot";
+      $("form-err").textContent = "Couldn't reach the robot. Check you're still on the robot's network and try again.";
+    });
+  }
+
+  function failCopy(reason) {
+    if (reason === "auth") {
+      return "That password didn't work. Check it and try again.";
+    }
+    if (reason === "no_ap") {
+      return "Couldn't find that network. Check the name and try again.";
+    }
+    if (reason === "storage") {
+      return "Couldn't save the settings on the robot. Please try again.";
+    }
+    return "Couldn't connect to that network. Please try again.";
+  }
+
+  function startPoll() {
+    stopPoll();
+    pollTimer = setInterval(function () {
+      fetch("/api/status").then(function (r) { return r.json(); }).then(function (st) {
+        if (!st || typeof st.state !== "string") { return; }
+        if (st.state === "failed") {
+          stopPoll();
+          $("error-copy").textContent = failCopy(st.reason);
+          show("error");
+        } else if (st.state === "ready") {
+          stopPoll();
+          renderSuccess(st);
+          show("success");
+        }
+      }).catch(function () { /* keep polling briefly */ });
+    }, 1500);
+  }
+
+  function stopPoll() {
+    if (pollTimer) { clearInterval(pollTimer); pollTimer = null; }
+  }
+
+  function renderSuccess(st) {
+    var area = $("claim-area");
+    if (st.claim_url && /^https?:\/\//i.test(st.claim_url)) {
+      var a = $("claim-btn");
+      a.href = st.claim_url;
+      $("claim-link-box").textContent = st.claim_url;
+      area.style.display = "block";
+      $("success-copy").textContent = "One last step: add the robot to your account.";
+    } else {
+      area.style.display = "none";
+      $("success-copy").textContent =
+        "Your robot is online. Finish in your dashboard: choose Connect Robot to link it.";
+    }
+  }
+
+  function finish() {
+    if (busy) { return; }
+    busy = true;
+    var btn = $("finish-btn");
+    btn.disabled = true;
+    btn.textContent = "Finishing\u2026";
+    fetch("/api/finalize", {
+      method: "POST",
+      headers: { "X-Provision-Token": TOKEN }
+    }).then(function (r) {
+      if (r.ok) {
+        stopPoll();
+        show("done");
+      } else {
+        throw new Error("finalize");
+      }
+    }).catch(function () {
+      btn.disabled = false;
+      btn.textContent = "Finish setup";
+      busy = false;
+    });
+  }
+
+  $("connect-btn").addEventListener("click", submitWifi);
+  $("retry-btn").addEventListener("click", function () {
+    show("form");
+    $("password").focus();
+  });
+  $("finish-btn").addEventListener("click", finish);
+  $("ssid").addEventListener("input", function () { setInvalid($("ssid"), false); });
+  $("password").addEventListener("input", function () { setInvalid($("password"), false); });
+
+  loadNetworks();
+})();
+</script>
+</body>
+</html>

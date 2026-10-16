@@ -3,6 +3,7 @@ idf_component_register(
         "app_main.c"
         "identity.c"
         "wifi.c"
+        "wifi_provision.c"
         "backend_client.c"
         "robot_mqtt.c"
         "telemetry.c"
@@ -19,9 +20,12 @@ idf_component_register(
         esp_timer
         mqtt
         esp_http_client
+        esp_http_server
         json
         app_update
         esp_system
         driver
         esp_psram
+    EMBED_FILES
+        "www/setup.html"
 )

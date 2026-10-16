@@ -1,6 +1,3 @@
-/** Tailwind CSS v3 config — scans Django templates + panel JS only.
- *  No React/Vue/Vite: the CLI writes straight into backend/static/css/.
- *  Palette matches the approved RoboPanel reference screenshot. */
 module.exports = {
   content: [
     "backend/templates/**/*.html",
@@ -9,25 +6,35 @@ module.exports = {
   theme: {
     extend: {
       colors: {
-        crimson: {
-          DEFAULT: "#E9003F",
-          hover: "#FF315C",
-          light: "#FF315C",
-          deep: "#B80033",
+        /* Champagne gold — the single restrained accent */
+        gold: {
+          DEFAULT: "#C9A96A",
+          hover: "#D9BD84",
+          light: "#E8D5A9",
+          deep: "#A88B4C",
+          muted: "#8A7449",
         },
-        base: "#08090D",
-        shell: "#0D0F16",
-        surface: "#141720",
-        raised: "#181B24",
-        line: "#FFFFFF14",
-        "line-strong": "#FFFFFF24",
-        body: "#F5F7FA",
-        muted: "#A1A7B3",
-        faint: "#6E7684",
+        /* Deep graphite / charcoal surfaces */
+        base: "#0C0D10",
+        shell: "#131419",
+        surface: "#1A1C22",
+        raised: "#23252D",
+        line: "#FFFFFF12",
+        "line-strong": "#FFFFFF28",
+        /* Warm ivory text + warm neutral grays */
+        body: "#F4F0E7",
+        muted: "#ABA79C",
+        faint: "#77746C",
+        /* Functional status (kept) */
         ok: "#00D084",
         warn: "#F59E0B",
         bad: "#EF4444",
         info: "#3B82F6",
+        /* Warm ivory for light-on-dark contrast surfaces */
+        ivory: {
+          DEFAULT: "#F7F3EA",
+          deep: "#EDE7DA",
+        },
       },
       fontFamily: {
         sans: [
@@ -38,6 +45,15 @@ module.exports = {
           "BlinkMacSystemFont",
           '"Segoe UI"',
           "sans-serif",
+        ],
+        /* Elegant display serif for headings (local stack, offline-safe) */
+        display: [
+          '"Iowan Old Style"',
+          '"Palatino Linotype"',
+          "Palatino",
+          '"Book Antiqua"',
+          "Georgia",
+          "serif",
         ],
         mono: [
           "ui-monospace",
@@ -50,9 +66,9 @@ module.exports = {
       },
       boxShadow: {
         panel: "0 10px 40px -12px rgba(0, 0, 0, 0.65)",
-        "crimson-glow": "0 0 28px -6px rgba(233, 0, 63, 0.5)",
-        "red-ambient":
-          "0 24px 60px -28px rgba(233, 0, 63, 0.35), 0 18px 40px -24px rgba(0, 0, 0, 0.8)",
+        "gold-glow": "0 0 26px -8px rgba(201, 169, 106, 0.4)",
+        "gold-ambient":
+          "0 24px 60px -28px rgba(201, 169, 106, 0.28), 0 18px 40px -24px rgba(0, 0, 0, 0.8)",
       },
     },
   },

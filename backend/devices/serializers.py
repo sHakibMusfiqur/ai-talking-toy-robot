@@ -57,6 +57,26 @@ class DevicePairSerializer(serializers.Serializer):
         return value.strip()
 
 
+class RobotClaimSerializer(serializers.Serializer):
+    """Redeem payload for a device-issued claim ticket: the ticket alone
+    identifies the robot (server-side lookup); ownership never comes from
+    the body and no robot/parent id field exists here."""
+
+    ticket = serializers.CharField(max_length=128)
+    nickname = serializers.CharField(
+        required=False, allow_blank=True, max_length=100, default=""
+    )
+
+    def validate_ticket(self, value):
+        value = value.strip()
+        if not value:
+            raise serializers.ValidationError("This field may not be blank.")
+        return value
+
+    def validate_nickname(self, value):
+        return value.strip()
+
+
 class DeviceChallengeSerializer(serializers.Serializer):
     device_id = serializers.CharField()
 

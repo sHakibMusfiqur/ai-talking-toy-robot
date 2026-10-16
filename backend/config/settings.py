@@ -143,10 +143,8 @@ STATICFILES_DIRS = [BASE_DIR / "static"]
 # collectstatic validation target (git-ignored); no static *hosting* is
 # configured here — production serving belongs to the deployment phase.
 STATIC_ROOT = BASE_DIR / "staticfiles"
-# Cache-busting token appended to panel asset URLs (?v=...). Dev-server static
-# responses carry no Cache-Control, so browsers heuristically cache JS/CSS;
-# bump this whenever panel JS/CSS changes so stale copies are invalidated.
-ASSET_VERSION = os.environ.get("ASSET_VERSION", "2026-10-16-1")
+
+ASSET_VERSION = os.environ.get("ASSET_VERSION", "2026-10-16-2")
 
 DEFAULT_AUTO_FIELD = "django_mongodb_backend.fields.ObjectIdAutoField"
 
@@ -201,6 +199,19 @@ ROBOT_COMMAND_COOLDOWN_SECONDS = float(
     os.environ.get("ROBOT_COMMAND_COOLDOWN_SECONDS", "1")
 )
 
+# Wi-Fi onboarding claim tickets (step 3): the robot requests a single-use
+# ticket over the parent's Wi-Fi; only its hash is stored and it expires
+# quickly. The redeem endpoint adds a per-user attempt limit (in-memory,
+# same single-process limitation as ROBOT_COMMAND_COOLDOWN_SECONDS;
+# <= 0 disables it).
+DEVICE_CLAIM_TTL_SECONDS = int(os.environ.get("DEVICE_CLAIM_TTL_SECONDS", "600"))
+DEVICE_CLAIM_RATE_LIMIT_ATTEMPTS = int(
+    os.environ.get("DEVICE_CLAIM_RATE_LIMIT_ATTEMPTS", "10")
+)
+DEVICE_CLAIM_RATE_LIMIT_WINDOW_SECONDS = int(
+    os.environ.get("DEVICE_CLAIM_RATE_LIMIT_WINDOW_SECONDS", "60")
+)
+
 
 AI_SERVICE_URL = os.environ.get("AI_SERVICE_URL", "http://ai-service:8000")
 AI_SERVICE_INTERNAL_TOKEN = os.environ.get("AI_SERVICE_INTERNAL_TOKEN", "")
@@ -208,12 +219,7 @@ AI_SERVICE_TIMEOUT_SECONDS = float(
     os.environ.get("AI_SERVICE_TIMEOUT_SECONDS", "30")
 )
 
-# Conversation-turn payload bounds (Phase A, F-09): the child-facing turn
-# endpoint accepts either a short text turn or one base64 audio clip.
-# ~1 MB of decoded audio ≈ 1.4 M base64 characters; text turns are child
-# chat, not documents. DATA_UPLOAD_MAX_MEMORY_SIZE is a hard backstop on
-# the whole request body (Django default is 2.5 MB; 5 MB leaves room for
-# the JSON envelope around a max-size audio field without rejecting it).
+
 CONVERSATION_MAX_TEXT_LENGTH = int(
     os.environ.get("CONVERSATION_MAX_TEXT_LENGTH", "4000")
 )
@@ -224,18 +230,7 @@ DATA_UPLOAD_MAX_MEMORY_SIZE = int(
     os.environ.get("DATA_UPLOAD_MAX_MEMORY_SIZE", str(5 * 1024 * 1024))
 )
 
-# Phase 12 secure audio upload boundary (2026-10-13 decision record):
-# 1 MiB maximum decoded file; body bound = 1 MiB + 16 KiB multipart
-# envelope allowance (pre-parse Content-Length gate). FILE_UPLOAD_MAX_
-# MEMORY_SIZE is pinned to the body bound so every gate-passing multipart
-# body stays in memory - never a temp file. Below Django's 2.5 MB default;
-# the gated audio endpoint is this repo's only multipart consumer.
-#
-# Env overrides may only LOWER a bound. Any value above the approved
-# contract maximum, any non-integer/negative/zero value, and any
-# combination where the file bound exceeds the body bound raises
-# ImproperlyConfigured at startup - clear and deterministic; a bound can
-# never be silently increased beyond the approved contract.
+
 
 
 def audio_upload_bound_from_env(env_name, raw, default, approved_max):
@@ -292,24 +287,13 @@ AUDIO_UPLOAD_MAX_BODY_BYTES = audio_upload_bound_from_env(
 validate_audio_upload_bounds(AUDIO_UPLOAD_MAX_FILE_BYTES, AUDIO_UPLOAD_MAX_BODY_BYTES)
 FILE_UPLOAD_MAX_MEMORY_SIZE = AUDIO_UPLOAD_MAX_BODY_BYTES
 
-# Conversation-turn rate limit (cost/abuse control, Section 26): DRF
-# fixed-window throttle on POST /api/v1/conversations/turn/, keyed by
-# robot (device caller) or user (session caller). Rate is DRF syntax;
-# "30/min" = 30 requests per 60 seconds. In-memory and therefore
-# per-process (same limitation as ROBOT_COMMAND_COOLDOWN_SECONDS; a
-# multi-worker deployment would need a shared cache). Empty disables the
+
 # limiter.
 CONVERSATION_TURN_RATE_LIMIT = os.environ.get(
     "CONVERSATION_TURN_RATE_LIMIT", "30/min"
 )
 
-# LOCAL UI TESTING ONLY (never enable in production): an explicit,
-# default-off development opt-in that establishes a normal Django
-# session for the parent named by LOCAL_UI_TEST_USER_EMAIL on local
-# dashboard page loads, so the panel and its owner-scoped API calls
-# work without the login page. Identity comes only from this settings
-# value (never from request input), /api/ paths are never bootstrapped,
-# and it additionally requires DEBUG=True - see core.local_ui_bypass.
+
 LOCAL_UI_TEST_BYPASS = os.environ.get(
     "LOCAL_UI_TEST_BYPASS", "false"
 ).lower() in ("1", "true", "yes")

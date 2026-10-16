@@ -23,12 +23,21 @@ from analytics.services import record_audit
 
 from .exceptions import (
     DeviceAlreadyRegistered,
+    InvalidClaimTicket,
     InvalidDeviceCredentials,
     InvalidDeviceId,
     InvalidPairingCode,
     InvalidPublicKey,
+    RobotAlreadyPaired,
 )
-from .models import DeviceChallenge, DeviceCredential, Robot, RobotEvent, RobotState
+from .models import (
+    DeviceChallenge,
+    DeviceClaimTicket,
+    DeviceCredential,
+    Robot,
+    RobotEvent,
+    RobotState,
+)
 from .tokens import issue_device_token
 
 logger = logging.getLogger(__name__)
@@ -135,6 +144,93 @@ def pair_robot(*, pairing_code, parent, nickname=None, ip=None):
             ip=ip,
         )
         robot.refresh_from_db()
+    return robot
+
+
+CLAIM_AUDIT_ACTION = "robot.claimed"
+
+
+def create_claim_ticket(*, robot, ip=None):
+    """Device-initiated claim ticket (Wi-Fi onboarding step 3): the robot
+    already proved its identity with its device JWT, so the ticket is minted
+    for exactly its own Robot row — the response never carries parent or
+    ownership data. The raw ticket (URL-safe, 256-bit) is returned exactly
+    once; only its SHA-256 hash is persisted. Single live ticket per robot:
+    reissuance deletes any previous row, so an older link dies the moment a
+    new one is created. Already-paired robots cannot mint tickets."""
+    if robot.pairing_status == Robot.PAIRING_PAIRED:
+        raise RobotAlreadyPaired()
+
+    raw_ticket = secrets.token_urlsafe(32)
+    now = timezone.now()
+    ttl = settings.DEVICE_CLAIM_TTL_SECONDS
+
+    with transaction.atomic():
+        DeviceClaimTicket.objects.filter(robot=robot).delete()
+        DeviceClaimTicket.objects.create(
+            robot=robot,
+            ticket_hash=sha256_hex(raw_ticket),
+            expires_at=now + timedelta(seconds=ttl),
+        )
+        record_audit(
+            actor=None,
+            action="device.claim_ticket_issued",
+            target=str(robot.pk),
+            ip=ip,
+        )
+    return raw_ticket, ttl
+
+
+def claim_robot_with_ticket(*, ticket, parent, nickname=None, ip=None):
+    """Explicit claim confirm (Wi-Fi onboarding): possession of a live,
+    unconsumed ticket selects exactly one robot. Ownership is established
+    from the authenticated session only — the ticket carries no owner and
+    the client never supplies one. Single-use: the ticket hash is consumed
+    atomically and the robot's unpaired status is flipped with a
+    compare-and-swap, so a ticket can never be replayed, raced or used to
+    re-home an already-paired robot. Every fault path raises the same
+    uniform InvalidClaimTicket (malformed, unknown, expired, consumed, or
+    the robot got paired meanwhile)."""
+    if not isinstance(ticket, str) or not ticket.strip() or len(ticket.strip()) > 128:
+        raise InvalidClaimTicket()
+    ticket_hash = sha256_hex(ticket.strip())
+    now = timezone.now()
+
+    with transaction.atomic():
+        row = DeviceClaimTicket.objects.filter(
+            ticket_hash=ticket_hash,
+            consumed_at__isnull=True,
+            expires_at__gt=now,
+        ).first()
+        if row is None:
+            raise InvalidClaimTicket()
+
+        consumed = DeviceClaimTicket.objects.filter(
+            pk=row.pk, consumed_at__isnull=True, expires_at__gt=now
+        ).update(consumed_at=now)
+        if consumed != 1:
+            raise InvalidClaimTicket()
+
+        updated = Robot.objects.filter(
+            pk=row.robot_id, pairing_status=Robot.PAIRING_UNPAIRED
+        ).update(
+            parent=parent,
+            pairing_status=Robot.PAIRING_PAIRED,
+            paired_at=now,
+            pairing_code_hash="",
+            pairing_code_expires_at=None,
+            **({"nickname": nickname} if nickname else {}),
+        )
+        if updated != 1:
+            raise InvalidClaimTicket()
+
+        record_audit(
+            actor=parent.user,
+            action=CLAIM_AUDIT_ACTION,
+            target=str(row.robot_id),
+            ip=ip,
+        )
+        robot = Robot.objects.get(pk=row.robot_id)
     return robot
 
 

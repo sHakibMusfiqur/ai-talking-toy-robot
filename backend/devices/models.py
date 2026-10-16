@@ -90,3 +90,23 @@ class DeviceChallenge(models.Model):
 
     def __str__(self):
         return f"challenge for {self.robot.device_id}"
+
+
+class DeviceClaimTicket(models.Model):
+    """Device-issued claim ticket (Wi-Fi onboarding): after the robot
+    reaches the backend over the parent's Wi-Fi it requests a single-use
+    ticket; only the SHA-256 hash is persisted. One live ticket per robot
+    (issuance deletes any previous row), short-TTL, consumed atomically by
+    the explicit claim confirm — possession of the raw ticket is the sole
+    capability it grants, and it never carries ownership data."""
+
+    robot = models.OneToOneField(
+        Robot, on_delete=models.CASCADE, related_name="claim_ticket"
+    )
+    ticket_hash = models.CharField(max_length=64, unique=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+    expires_at = models.DateTimeField()
+    consumed_at = models.DateTimeField(null=True, blank=True)
+
+    def __str__(self):
+        return f"claim ticket for {self.robot.device_id}"

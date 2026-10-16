@@ -19,6 +19,12 @@ urlpatterns = [
         devices_views.robot_controller,
         name="dashboard-controller",
     ),
+    path("onboarding/", devices_views.onboarding, name="onboarding"),
+    path(
+        "onboarding/claim/",
+        devices_views.onboarding_claim,
+        name="onboarding-claim",
+    ),
     path("api/v1/", include("accounts.urls")),
     path("api/v1/", include("devices.urls")),
     path("api/v1/", include("conversations.urls")),
