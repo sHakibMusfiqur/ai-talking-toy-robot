@@ -205,12 +205,20 @@ bool identity_is_registered(void)
 void identity_set_registered(bool registered)
 {
     nvs_handle_t nvs;
-    if (nvs_open(NVS_NAMESPACE, NVS_READWRITE, &nvs) != ESP_OK) {
+    esp_err_t err = nvs_open(NVS_NAMESPACE, NVS_READWRITE, &nvs);
+    if (err != ESP_OK) {
+        ESP_LOGE(TAG, "registered flag not saved: nvs_open failed (%s)",
+                 esp_err_to_name(err));
         return;
     }
-    nvs_set_u8(nvs, NVS_KEY_REGISTERED, registered ? 1 : 0);
-    nvs_commit(nvs);
+    err = nvs_set_u8(nvs, NVS_KEY_REGISTERED, registered ? 1 : 0);
+    if (err == ESP_OK) {
+        err = nvs_commit(nvs);
+    }
     nvs_close(nvs);
+    if (err != ESP_OK) {
+        ESP_LOGE(TAG, "registered flag not saved (%s)", esp_err_to_name(err));
+    }
 }
 
 esp_err_t identity_sign_challenge(const char *challenge, size_t challenge_len,

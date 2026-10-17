@@ -126,8 +126,16 @@ static void setup_ap_identity(void)
             s_setup_key[i] = charset[rnd[i] % (sizeof(charset) - 1)];
         }
         s_setup_key[12] = '\0';
-        (void)nvs_set_str(handle, NVS_KEY_SETUP_PASS, s_setup_key);
-        (void)nvs_commit(handle);
+        esp_err_t persist_err = nvs_set_str(handle, NVS_KEY_SETUP_PASS,
+                                            s_setup_key);
+        if (persist_err == ESP_OK) {
+            persist_err = nvs_commit(handle);
+        }
+        if (persist_err != ESP_OK) {
+            ESP_LOGW(TAG,
+                     "setup key not persisted (%s); new key next boot",
+                     esp_err_to_name(persist_err));
+        }
     }
     nvs_close(handle);
 }
@@ -649,10 +657,21 @@ void provision_run(const char *reason, bool wifi_already_started)
 
     wifi_config_t sta_cfg = {0};
 
-    ESP_ERROR_CHECK(esp_wifi_set_mode(WIFI_MODE_APSTA));
-    ESP_ERROR_CHECK(esp_wifi_set_config(WIFI_IF_AP, &ap_cfg));
-    ESP_ERROR_CHECK(esp_wifi_set_config(WIFI_IF_STA, &sta_cfg));
-    ESP_ERROR_CHECK(esp_wifi_start());
+    esp_err_t wifi_err = esp_wifi_set_mode(WIFI_MODE_APSTA);
+    if (wifi_err == ESP_OK) {
+        wifi_err = esp_wifi_set_config(WIFI_IF_AP, &ap_cfg);
+    }
+    if (wifi_err == ESP_OK) {
+        wifi_err = esp_wifi_set_config(WIFI_IF_STA, &sta_cfg);
+    }
+    if (wifi_err == ESP_OK) {
+        wifi_err = esp_wifi_start();
+    }
+    if (wifi_err != ESP_OK) {
+        ESP_LOGE(TAG, "provisioning Wi-Fi start failed (%s), halted",
+                 esp_err_to_name(wifi_err));
+        halt_loop();
+    }
 
     start_httpd();
     setup_indication_init();

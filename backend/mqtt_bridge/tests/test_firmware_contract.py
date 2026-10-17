@@ -839,6 +839,117 @@ def test_response_body_is_never_logged():
             )
 
 
+def test_nvs_recovery_fails_closed_without_erasing():
+    source = _read(MAIN_DIR / "app_main.cpp")
+    assert "nvs_flash_erase" not in source, (
+        "NVS recovery must never erase the partition (identity would be lost)"
+    )
+    recovery = source.split("esp_err_t err = nvs_flash_init();", 1)[1].split(
+        "if (err != ESP_OK)", 1
+    )[0]
+    assert "ESP_ERR_NVS_NO_FREE_PAGES" in recovery
+    assert "ESP_ERR_NVS_NEW_VERSION_FOUND" in recovery
+    assert "NVS recovery required" in recovery
+    assert "refusing to erase" in recovery
+    assert "return;" in recovery
+    assert "identity_init" not in recovery, (
+        "recovery must halt before identity_init so no identity is generated"
+    )
+
+
+def test_nvs_recovery_is_separate_from_first_boot_identity_creation():
+    app = _read(MAIN_DIR / "app_main.cpp")
+    assert "if (identity_init() != ESP_OK)" in app
+    pre_identity = app.split("if (identity_init() != ESP_OK)", 1)[0]
+    assert pre_identity.count("return;") >= 2, (
+        "recovery branch and generic NVS init failure must both return "
+        "before identity_init"
+    )
+    # First-boot creation stays only inside identity_init's both-absent
+    # branch: definition + single call site, never app_main's recovery path.
+    identity = _read(MAIN_DIR / "identity.cpp")
+    assert identity.count("identity_generate_uuid_v4(") == 2
+    assert app.count("identity_generate") == 0
+
+
+def test_identity_set_registered_checks_persistence_errors():
+    source = _read(MAIN_DIR / "identity.cpp")
+    body = source.split("void identity_set_registered", 1)[1].split(
+        "esp_err_t identity_sign_challenge", 1
+    )[0]
+    assert "esp_err_t err = nvs_open" in body
+    assert "registered flag not saved: nvs_open failed" in body
+    assert "err = nvs_set_u8" in body, "nvs_set_u8 result must be checked"
+    assert "err = nvs_commit(nvs)" in body, "nvs_commit result must be checked"
+    assert body.count("nvs_close(nvs)") == 1
+    assert "esp_err_to_name(err)" in body
+    assert "(void)nvs_" not in body
+
+
+def test_wifi_erase_credentials_reports_failures():
+    source = _read(MAIN_DIR / "wifi.cpp")
+    body = source.split("void wifi_erase_credentials", 1)[1].split(
+        "esp_err_t wifi_sta_connect_with", 1
+    )[0]
+    assert "Wi-Fi settings not erased" in body
+    assert "Wi-Fi settings erase failed" in body
+    assert body.count("saved Wi-Fi settings erased") == 1
+    assert "esp_err_to_name" in body
+    assert "(void)nvs_" not in body
+    assert body.index("Wi-Fi settings erase failed") < body.index(
+        "saved Wi-Fi settings erased"
+    ), "success log must only be reachable after the error branch"
+
+
+def test_wifi_start_propagates_driver_errors():
+    source = _read(MAIN_DIR / "wifi.cpp")
+    body = source.split("esp_err_t wifi_start(void)", 1)[1].split(
+        "bool wifi_is_connected", 1
+    )[0]
+    assert "ESP_ERROR_CHECK" not in body, (
+        "driver errors must be propagated, not abort/reboot-looped"
+    )
+    assert "esp_wifi_set_mode failed" in body
+    assert "esp_wifi_set_config failed" in body
+    assert "esp_wifi_start failed" in body
+    assert "return err;" in body
+    assert body.index("esp_wifi_start failed") < body.index("s_started = true")
+
+
+def test_provision_run_replaces_aborts_with_logged_halt():
+    source = _read(MAIN_DIR / "wifi_provision.cpp")
+    body = source.split("void provision_run", 1)[1]
+    assert "ESP_ERROR_CHECK" not in body, (
+        "provisioning Wi-Fi start failures must log and halt, not abort"
+    )
+    assert "provisioning Wi-Fi start failed" in body
+    assert "esp_err_to_name(wifi_err)" in body
+    wifi_block = body.split("esp_wifi_set_mode", 1)[1]
+    assert wifi_block.index("provisioning Wi-Fi start failed") < wifi_block.index(
+        "halt_loop()"
+    ), "log must precede the halt in the driver-start block"
+    assert "WIFI_AUTH_WPA2_PSK" in body
+
+
+def test_setup_key_persist_failures_are_logged():
+    source = _read(MAIN_DIR / "wifi_provision.cpp")
+    assert "(void)nvs_set_str" not in source
+    assert "(void)nvs_commit" not in source
+    body = source.split("static void setup_ap_identity", 1)[1].split(
+        "static void print_setup_banner", 1
+    )[0]
+    assert "setup key not persisted" in body
+    assert "esp_err_to_name(persist_err)" in body
+    for number, statement in _log_statements(MAIN_DIR / "wifi_provision.cpp"):
+        if "setup key not persisted" in statement:
+            assert "s_setup_key" not in statement, (
+                f"line {number} must not log the setup key value"
+            )
+            break
+    else:
+        raise AssertionError("missing 'setup key not persisted' log")
+
+
 @pytest.mark.skipif(
     shutil.which("idf.py") is None,
     reason="ESP-IDF toolchain (idf.py) not available — firmware build NOT TESTED",

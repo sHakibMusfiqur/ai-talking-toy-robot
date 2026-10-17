@@ -172,11 +172,24 @@ bool wifi_save_credentials(const char *ssid, const char *pass)
 void wifi_erase_credentials(void)
 {
     nvs_handle_t handle;
-    if (nvs_open(NVS_NAMESPACE, NVS_READWRITE, &handle) == ESP_OK) {
-        (void)nvs_erase_key(handle, NVS_KEY_SSID);
-        (void)nvs_erase_key(handle, NVS_KEY_PASS);
-        (void)nvs_commit(handle);
-        nvs_close(handle);
+    esp_err_t open_err = nvs_open(NVS_NAMESPACE, NVS_READWRITE, &handle);
+    if (open_err != ESP_OK) {
+        ESP_LOGE(TAG, "Wi-Fi settings not erased: nvs_open failed (%s)",
+                 esp_err_to_name(open_err));
+        return;
+    }
+    esp_err_t ssid_err = nvs_erase_key(handle, NVS_KEY_SSID);
+    esp_err_t pass_err = nvs_erase_key(handle, NVS_KEY_PASS);
+    esp_err_t commit_err = nvs_commit(handle);
+    nvs_close(handle);
+    if ((ssid_err != ESP_OK && ssid_err != ESP_ERR_NVS_NOT_FOUND) ||
+        (pass_err != ESP_OK && pass_err != ESP_ERR_NVS_NOT_FOUND) ||
+        commit_err != ESP_OK) {
+        ESP_LOGE(TAG,
+                 "Wi-Fi settings erase failed (ssid=%s pass=%s commit=%s)",
+                 esp_err_to_name(ssid_err), esp_err_to_name(pass_err),
+                 esp_err_to_name(commit_err));
+        return;
     }
     ESP_LOGI(TAG, "saved Wi-Fi settings erased");
 }
@@ -280,9 +293,21 @@ esp_err_t wifi_start(void)
     memset(pass, 0, sizeof(pass));
 
     s_autoreconnect = true;
-    ESP_ERROR_CHECK(esp_wifi_set_mode(WIFI_MODE_STA));
-    ESP_ERROR_CHECK(esp_wifi_set_config(WIFI_IF_STA, &wifi_cfg));
-    ESP_ERROR_CHECK(esp_wifi_start());
+    err = esp_wifi_set_mode(WIFI_MODE_STA);
+    if (err != ESP_OK) {
+        ESP_LOGE(TAG, "esp_wifi_set_mode failed (%s)", esp_err_to_name(err));
+        return err;
+    }
+    err = esp_wifi_set_config(WIFI_IF_STA, &wifi_cfg);
+    if (err != ESP_OK) {
+        ESP_LOGE(TAG, "esp_wifi_set_config failed (%s)", esp_err_to_name(err));
+        return err;
+    }
+    err = esp_wifi_start();
+    if (err != ESP_OK) {
+        ESP_LOGE(TAG, "esp_wifi_start failed (%s)", esp_err_to_name(err));
+        return err;
+    }
 
     s_started = true;
     ESP_LOGI(TAG, "station starting (credentials %s)",
