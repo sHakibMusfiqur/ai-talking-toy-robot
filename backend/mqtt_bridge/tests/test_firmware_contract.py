@@ -551,18 +551,39 @@ def test_capture_stops_on_release_and_timeout():
 
 def test_short_captures_are_rejected_before_upload():
     header = _read(MAIN_DIR / "audio_capture.hpp")
-    assert "AUDIO_CAPTURE_MIN_PCM_BYTES" in header
-    # 100 ms of PCM16 mono @ 16 kHz = 3200 bytes in the actual buffer
-    # representation (16000 samples/s * 2 bytes/sample * 0.1 s).
-    assert (16000 * 2 * 1 * 100) // 1000 == 3200
+    # Evaluate the header's own macro expression against the header's own
+    # format constants: a standalone Python-arithmetic check would pass even
+    # if the macro were changed to 50 ms, 1600 bytes, or any wrong value.
+    joined = header.replace("\\\n", " ")
+    macro = re.search(r"#define AUDIO_CAPTURE_MIN_PCM_BYTES\s+(.*?)\n", joined)
+    assert macro is not None, "AUDIO_CAPTURE_MIN_PCM_BYTES macro missing"
+    expr = macro.group(1).strip()
+    assert "* 100) / 1000" in expr, (
+        "minimum must express 100 ms as x100/1000 in the macro"
+    )
+    constants = {}
+    for name in (
+        "AUDIO_CAPTURE_SAMPLE_RATE_HZ",
+        "AUDIO_CAPTURE_BITS_PER_SAMPLE",
+        "AUDIO_CAPTURE_CHANNELS",
+    ):
+        found = re.search(rf"#define {name}\s+(\d+)", header)
+        assert found is not None, f"{name} missing from audio_capture.hpp"
+        constants[name] = int(found.group(1))
+    value = eval(expr, {"__builtins__": {}}, constants)
+    assert value == 3200, (
+        f"minimum capture must be 100 ms = 3200 bytes, macro evaluates to {value}"
+    )
     source = _read(MAIN_DIR / "conversation.cpp")
     guard = "pcm_len < AUDIO_CAPTURE_MIN_PCM_BYTES"
     assert guard in source
     before, after = source.split(guard, 1)
-    assert before.rfind("audio_capture_deinit();") != -1, (
-        "capture resources must be released before the guard"
-    )
     assert "audio_capture_fill_wav_header" not in before
+    loop_tail = before.rsplit("while (pcm_len < pcm_capacity)", 1)
+    assert len(loop_tail) == 2, "PCM capture loop missing"
+    assert "audio_capture_deinit();" in loop_tail[1], (
+        "capture cleanup must run after the PCM loop and before the guard"
+    )
     block = after.split("}", 1)[0]
     assert 'telemetry_publish_audio_capture_failed("too_short")' in block
     assert 'telemetry_set_state("IDLE")' in block
