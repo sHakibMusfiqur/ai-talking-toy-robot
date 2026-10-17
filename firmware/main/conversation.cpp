@@ -1,11 +1,11 @@
-#include "conversation.h"
+#include "conversation.hpp"
 
 #include <stdbool.h>
 #include <stdio.h>
 #include <string.h>
 
-#include "audio_capture.h"
-#include "backend_client.h"
+#include "audio_capture.hpp"
+#include "backend_client.hpp"
 #include "cJSON.h"
 #include "conv_retry_after.h"
 #include "conv_string.h"
@@ -15,9 +15,9 @@
 #include "esp_timer.h"
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
-#include "identity.h"
+#include "identity.hpp"
 #include "sdkconfig.h"
-#include "telemetry.h"
+#include "telemetry.hpp"
 
 static const char *TAG = "conversation";
 
@@ -25,18 +25,18 @@ static const char *TAG = "conversation";
 #define CONV_UPLOAD_MAX_BODY_BYTES (1024 * 1024 + 16 * 1024)
 
 #define CONV_MULTIPART_BOUNDARY "----RoboPanelAudioBoundary7f3a9c"
-#define CONV_BOUNDARY_LEN 34
+constexpr int CONV_BOUNDARY_LEN = 34;
 
 #define CONV_UPLOAD_MAX_ATTEMPTS 3
 #define CONV_UPLOAD_DEADLINE_MS 90000
 #define CONV_RETRY_BACKOFF_BASE_MS 1000
 
-#define CONV_RESPONSE_MAX 2048
-#define CONV_PTT_POLL_MS 20
-#define CONV_PTT_DEBOUNCE_SAMPLES 3
-#define CONV_READ_CHUNK_BYTES 2048
-#define CONV_UUID_LEN 37
-#define CONV_SIDECAR_MAX 192
+constexpr int CONV_RESPONSE_MAX = 2048;
+constexpr int CONV_PTT_POLL_MS = 20;
+constexpr int CONV_PTT_DEBOUNCE_SAMPLES = 3;
+constexpr int CONV_READ_CHUNK_BYTES = 2048;
+constexpr int CONV_UUID_LEN = 37;
+constexpr int CONV_SIDECAR_MAX = 192;
 
 static const char *PREFIX_BOUNDARY_LINE = "--" CONV_MULTIPART_BOUNDARY "\r\n";
 static const char *PREFIX_DISPOSITION =
@@ -57,7 +57,7 @@ static bool language_hint_is_valid(const char *hint)
 
 static bool ptt_pressed(void)
 {
-    int level = gpio_get_level(CONFIG_ROBOT_PTT_GPIO);
+    int level = gpio_get_level(static_cast<gpio_num_t>(CONFIG_ROBOT_PTT_GPIO));
     return CONFIG_ROBOT_PTT_ACTIVE_LOW ? (level == 0) : (level != 0);
 }
 
@@ -424,7 +424,7 @@ esp_err_t conversation_init(void)
         ESP_LOGI(TAG, "PTT disabled by configuration");
         return ESP_OK;
     }
-    if (!gpio_is_valid_gpio(CONFIG_ROBOT_PTT_GPIO)) {
+    if (!GPIO_IS_VALID_GPIO(CONFIG_ROBOT_PTT_GPIO)) {
         ESP_LOGW(TAG, "PTT gpio out of range, capture disabled");
         telemetry_publish_audio_unavailable("ptt_gpio_invalid");
         return ESP_ERR_INVALID_ARG;
@@ -454,7 +454,8 @@ esp_err_t conversation_init(void)
         return ESP_ERR_INVALID_SIZE;
     }
 
-    s_body_buf = heap_caps_malloc(needed, MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT);
+    s_body_buf = static_cast<uint8_t *>(
+        heap_caps_malloc(needed, MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT));
     if (s_body_buf == NULL) {
         ESP_LOGW(TAG, "conversation buffer allocation failed");
         telemetry_publish_audio_unavailable("buffer_alloc");

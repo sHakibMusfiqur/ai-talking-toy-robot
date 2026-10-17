@@ -1,20 +1,3 @@
-"""The simulator runtime: real paho-mqtt client + background loops that
-mirror the firmware's device-side behavior end to end.
-
-Contract parity with the firmware:
-- MQTT username = device_id, password = device Bearer JWT (challenge flow)
-- LWT: retained QoS1 ``{"online":false}`` on the own status topic
-- subscribes to exactly four own topics (command + three notify markers)
-- heartbeat: literal ``{}`` at QoS0 on its own schedule
-- status: retained QoS1 partial updates (online/state only - no radio or
-  battery exists in software, so rssi/battery_percent are never emitted)
-- state machine BOOT -> <action> -> IDLE, exactly like actions.c
-- command acks: command.received -> (simulated execution) -> command.executed,
-  rejects immediately with command.rejected; every payload carries
-  ``"simulated": true`` so logs/events cannot be mistaken for hardware
-- bounded exponential reconnect; token refresh before expiry followed by
-  an MQTT reconnect (username_pw_set + reconnect), mirroring the firmware
-"""
 
 import json
 import logging

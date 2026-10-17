@@ -1,15 +1,15 @@
 idf_component_register(
     SRCS
-        "app_main.c"
-        "identity.c"
-        "wifi.c"
-        "wifi_provision.c"
-        "backend_client.c"
-        "robot_mqtt.c"
-        "telemetry.c"
-        "actions.c"
-        "audio_capture.c"
-        "conversation.c"
+        "app_main.cpp"
+        "identity.cpp"
+        "wifi.cpp"
+        "wifi_provision.cpp"
+        "backend_client.cpp"
+        "robot_mqtt.cpp"
+        "telemetry.cpp"
+        "actions.cpp"
+        "audio_capture.cpp"
+        "conversation.cpp"
     INCLUDE_DIRS "."
     REQUIRES
         mbedtls

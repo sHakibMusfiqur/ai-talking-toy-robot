@@ -34,7 +34,7 @@ def test_claim_and_onboarding_routes_match_firmware_urls():
     assert reverse("onboarding") == "/onboarding/"
     assert reverse("onboarding-claim") == "/onboarding/claim/"
 
-    client_source = _source("backend_client.c")
+    client_source = _source("backend_client.cpp")
     assert (
         '#define DEVICE_CLAIM_TICKETS_PATH "/api/v1/devices/claim-tickets/"'
         in client_source
@@ -47,7 +47,7 @@ def test_firmware_posts_empty_body_and_refreshes_on_401_once():
     """Approved contract: POST {} with the device Bearer JWT -> 201
     {ticket, expires_in}; on 401 refresh the token and retry exactly once;
     any other status is a provisioning failure (no ticket, no link)."""
-    client_source = _source("backend_client.c")
+    client_source = _source("backend_client.cpp")
     claim_fn = client_source[
         client_source.index("esp_err_t backend_create_claim_ticket") : client_source.index(
             "esp_err_t backend_claim_url"
@@ -80,7 +80,7 @@ def test_setup_page_only_offers_absolute_http_claim_links():
 
 
 def test_setup_write_endpoints_require_the_provision_token():
-    source = _source("wifi_provision.c")
+    source = _source("wifi_provision.cpp")
     assert '"X-Provision-Token"' in source
     assert "static bool token_ok(httpd_req_t *req)" in source
 
@@ -103,7 +103,7 @@ def test_setup_write_endpoints_require_the_provision_token():
 
 
 def test_status_response_never_contains_credential_fields():
-    source = _source("wifi_provision.c")
+    source = _source("wifi_provision.cpp")
     status_handler = source[
         source.index("static esp_err_t handle_status") : source.index(
             "static esp_err_t handle_finalize"
@@ -116,7 +116,7 @@ def test_status_response_never_contains_credential_fields():
 
 
 def test_setup_access_point_is_wpa2_only():
-    source = _source("wifi_provision.c")
+    source = _source("wifi_provision.cpp")
     assert "ap_cfg.ap.authmode = WIFI_AUTH_WPA2_PSK;" in source
     assert "WIFI_AUTH_OPEN" not in source
 
@@ -146,9 +146,9 @@ def test_setup_kconfig_defaults_invent_no_gpio_or_shared_secret():
 
 
 def test_setup_indicator_and_factory_reset_stay_optional_in_source():
-    provision = _source("wifi_provision.c")
+    provision = _source("wifi_provision.cpp")
     assert "if (CONFIG_ROBOT_SETUP_LED_GPIO < 0)" in provision
-    app_main = _source("app_main.c")
+    app_main = _source("app_main.cpp")
     assert "if (CONFIG_ROBOT_FACTORY_RESET_GPIO < 0)" in app_main
 
 
@@ -157,12 +157,12 @@ def test_setup_indicator_and_factory_reset_stay_optional_in_source():
 
 def test_provisioning_module_is_wired_into_the_build():
     cmake = CMAKE.read_text(encoding="utf-8")
-    assert "wifi_provision.c" in cmake
+    assert "wifi_provision.cpp" in cmake
     assert "www/setup.html" in cmake
     assert "esp_http_server" in cmake
-    assert "_binary_www_setup_html_start" in _source("wifi_provision.c")
+    assert "_binary_setup_html_start" in _source("wifi_provision.cpp")
 
-    headers = _source("wifi_provision.h")
+    headers = _source("wifi_provision.hpp")
     assert (
         "void provision_run(const char *reason, bool wifi_already_started);"
         in headers
@@ -170,7 +170,7 @@ def test_provisioning_module_is_wired_into_the_build():
 
 
 def test_setup_mode_entry_conditions_match_the_approved_plan():
-    app_main = _source("app_main.c")
+    app_main = _source("app_main.cpp")
     assert "#define AUTH_FAILURE_PROVISION_THRESHOLD 3" in app_main
     assert 'provision_run("no_credentials", false);' in app_main
     assert 'provision_run("auth_failure", true);' in app_main
@@ -178,13 +178,13 @@ def test_setup_mode_entry_conditions_match_the_approved_plan():
     assert "wifi_auth_failure_count() >= AUTH_FAILURE_PROVISION_THRESHOLD" in app_main
     assert "check_factory_reset();" in app_main
 
-    wifi = _source("wifi.c")
+    wifi = _source("wifi.cpp")
     assert "bool wifi_has_saved_credentials(void)" in wifi
     assert "wifi_erase_credentials" in wifi
 
 
 def test_setup_banner_shows_key_and_legacy_pairing_fallback():
-    provision = _source("wifi_provision.c")
+    provision = _source("wifi_provision.cpp")
     assert '"   Setup key: %s\\n"' in provision
     # When the claim link could not be created, the classic single-use
     # pairing code is printed from the provisioning banner as well
@@ -194,8 +194,8 @@ def test_setup_banner_shows_key_and_legacy_pairing_fallback():
 
 
 def test_home_wifi_secret_is_stored_never_rendered_to_the_page():
-    provision = _source("wifi_provision.c")
+    provision = _source("wifi_provision.cpp")
     # Stored under NVS key "setup_pass"/"pass" for reconnect — but the
     # rendered page placeholders (checked above) never carry it.
-    assert "nvs_set_str" in provision or "wifi_save_credentials" in _source("wifi.c")
+    assert "nvs_set_str" in provision or "wifi_save_credentials" in _source("wifi.cpp")
     assert '"__WIFI_PASS__"' not in SETUP_PAGE.read_text(encoding="utf-8")

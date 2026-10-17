@@ -30,7 +30,7 @@ robot_sim (python -m robot_sim, from backend/)
              EC P-256 key + UUID device id; delete the file to rotate)
 ```
 
-The command-handling logic mirrors `firmware/main/actions.c`
+The command-handling logic mirrors `firmware/main/actions.cpp`
 (case-insensitive match against the frozen set, canonical uppercase in
 acks, `invalid_payload` / `unknown_action` reject reasons) and reuses the
 ONE existing definitions: `core.semantic_actions.SEMANTIC_ACTIONS` and

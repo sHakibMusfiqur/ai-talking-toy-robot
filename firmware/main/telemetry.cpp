@@ -1,4 +1,4 @@
-#include "telemetry.h"
+#include "telemetry.hpp"
 
 #include <stdio.h>
 #include <string.h>
@@ -8,15 +8,15 @@
 #include "esp_log.h"
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
-#include "robot_mqtt.h"
+#include "robot_mqtt.hpp"
 #include "sdkconfig.h"
-#include "wifi.h"
+#include "wifi.hpp"
 
 static const char *TAG = "telemetry";
 
-#define STATE_MAX 32
-#define STATUS_JSON_MAX 256
-#define EVENT_JSON_MAX 512
+constexpr int STATE_MAX = 32;
+constexpr int STATUS_JSON_MAX = 256;
+constexpr int EVENT_JSON_MAX = 512;
 
 static char s_state[STATE_MAX] = "BOOT";
 static bool s_pending_mqtt_disconnected;

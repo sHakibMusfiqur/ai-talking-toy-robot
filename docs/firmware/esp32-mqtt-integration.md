@@ -48,16 +48,22 @@ firmware/
 ├── sdkconfig.defaults      tracked defaults — NO secrets
 └── main/
     ├── Kconfig.projbuild   menuconfig options (Wi-Fi, backend, broker, TLS, intervals)
-    ├── app_main.c          connection state machine (bounded backoff)
-    ├── identity.c/.h       NVS-persisted UUIDv4 + ECDSA P-256 keypair, challenge signing
-    ├── wifi.c/.h           station mode, exponential reconnect (1s → 30s cap), RSSI
-    ├── backend_client.c/.h register / challenge / token over HTTPS
-    ├── robot_mqtt.c/.h     broker session, LWT, exact subscriptions, publish helpers
-    ├── telemetry.c/.h      heartbeat + status tasks, lifecycle events, status state
-    ├── actions.c/.h        frozen semantic whitelist, joint limits, move programs
-    ├── audio_capture.c/.h  I2S-std mic capture, 15 s / 480,044 B WAV bound, PSRAM buffer user
-    └── conversation.c/.h   PTT task, single-buffer multipart build, upload retry policy
+    ├── app_main.cpp          connection state machine (bounded backoff)
+    ├── identity.cpp/.hpp       NVS-persisted UUIDv4 + ECDSA P-256 keypair, challenge signing
+    ├── wifi.cpp/.hpp           station mode, exponential reconnect (1s → 30s cap), RSSI
+    ├── wifi_provision.cpp/.hpp SoftAP setup HTTP server + embedded claim-link provisioning
+    ├── backend_client.cpp/.hpp register / challenge / token over HTTPS
+    ├── robot_mqtt.cpp/.hpp     broker session, LWT, exact subscriptions, publish helpers
+    ├── telemetry.cpp/.hpp      heartbeat + status tasks, lifecycle events, status state
+    ├── actions.cpp/.hpp        frozen semantic whitelist, joint limits, move programs
+    ├── audio_capture.cpp/.hpp  I2S-std mic capture, 15 s / 480,044 B WAV bound, PSRAM buffer user
+    └── conversation.cpp/.hpp   PTT task, single-buffer multipart build, upload retry policy
 ```
+
+Firmware modules are C++ (ESP-IDF `gnu++2b`, no exceptions/RTTI); the
+retry/whitespace helpers (`conv_retry_after.h`, `conv_string.h`) and the
+`host_test/*.c` harnesses stay C so gcc can compile them directly on the
+host.
 
 ## 3. Build & flash
 
@@ -65,7 +71,7 @@ Requires the ESP-IDF `idf.py` toolchain on PATH (v5.1+):
 
 ```
 cd firmware
-idf.py set-target esp32
+idf.py set-target esp32s3
 idf.py menuconfig          # "RoboPanel Robot" menu — see section 4
 idf.py build flash monitor
 ```
@@ -79,6 +85,8 @@ Without the toolchain the build test in
 All options live under **menuconfig → RoboPanel Robot**. Tracked defaults
 (`sdkconfig.defaults`) contain no secrets; credentials go into the
 untracked local `sdkconfig` (or `sdkconfig.local`), never into git.
+Tracked defaults also pin `CONFIG_COMPILER_OPTIMIZATION_SIZE=y` (`-Os`)
+so the app image fits the default 1 MB `factory` partition.
 
 | Option | Default | Notes |
 |---|---|---|
@@ -162,7 +170,7 @@ Matching is case-insensitive; unknown actions are rejected with
 `command.rejected` and never move hardware. Raw servo/PWM/GPIO/motor
 values are not part of any contract — firmware translates each semantic
 name into a symbolic move program whose every target is clamped through
-the joint-limit table (`kJointLimits` in `actions.c`). The action set is
+the joint-limit table (`kJointLimits` in `actions.cpp`). The action set is
 identical to `backend/core/semantic_actions.py`; the contract test fails
 if the two ever diverge.
 
@@ -276,6 +284,6 @@ profile id are configured.
 | `Retry-After` parser + 30 s/2 s clamp behavior: empty/zero/ordinary/max/over-cap/long-digit/negative/sign/space/non-digit/HTTP-date vectors through the real parse→clamp helpers compiled on the host (`retry_after_harness.c` via gcc) | **PASS** — automated (host-runnable behavioral) |
 | Whitespace-only-string rejection helper: null/empty/space/tab/newline/CR/LF/VT/FF and valid padded/embedded-space strings against the real C code on the host (`string_utils_harness.c` via gcc) | **PASS** — automated (host-runnable behavioral) |
 | Controller real-mode switch, REST-only browser, failure copy, in-flight guard (`test_real_integration.py`) | **PASS** — automated |
-| `idf.py build` of `firmware/` | **NOT TESTED** — ESP-IDF toolchain not available in this environment (test auto-skips) |
+| `idf.py build` of `firmware/` | **PASS** — ESP-IDF v5.4.4, esp32s3 target, C++ migration; image 968,288 B fits the default 1 MB factory partition at `-Os` (`CONFIG_COMPILER_OPTIMIZATION_SIZE=y`, owner-approved 2026-10-17). Test runs the real toolchain when `idf.py` is on PATH, else auto-skips explicitly. |
 | Physical ESP32: flash, Wi-Fi join, live broker session, real servo motion | **NOT TESTED** — no hardware in this environment |
-| I2S mic capture, PTT button, PSRAM allocation, live audio upload to Django | **NOT TESTED** — requires flashed ESP32-S3 + configured pins/profile; build itself also NOT TESTED here |
+| I2S mic capture, PTT button, PSRAM allocation, live audio upload to Django | **NOT TESTED** — requires flashed ESP32-S3 + configured pins/profile |

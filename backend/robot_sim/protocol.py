@@ -1,18 +1,3 @@
-"""Frozen device-side protocol logic, shared by the simulator runtime and
-unit tests (no I/O, no Django settings access).
-
-Mirrors the firmware contract exactly:
-- topics/QoS/retain come from the ONE existing definition (mqtt_bridge.topics)
-- the action whitelist is the ONE existing definition (core.semantic_actions)
-- command parsing mirrors firmware actions.c process_command():
-  invalid JSON / non-object / missing-or-non-string action ->
-  ``invalid_payload`` with an empty action string; case-insensitive match
-  with 1..64 char bound -> canonical UPPERCASE action; anything else ->
-  ``unknown_action`` with the raw value verbatim (truncated to 64 chars,
-  as the firmware's ``%.64s`` does).
-The simulator additionally stamps ``"simulated": true`` into command event
-payloads so simulated activity is never mistaken for real hardware.
-"""
 
 import json
 import re
@@ -20,7 +5,7 @@ import re
 from core.semantic_actions import SEMANTIC_ACTIONS
 from mqtt_bridge import topics
 
-# Firmware actions.c: ACTION_MAX 65 (incl. NUL) -> accepted length 1..64.
+# Firmware actions.cpp: ACTION_MAX 65 (incl. NUL) -> accepted length 1..64.
 MAX_ACTION_LEN = 64
 
 STATE_BOOT = "BOOT"

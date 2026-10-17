@@ -1,4 +1,4 @@
-#include "actions.h"
+#include "actions.hpp"
 
 #include <ctype.h>
 #include <stdbool.h>
@@ -11,17 +11,17 @@
 #include "freertos/FreeRTOS.h"
 #include "freertos/queue.h"
 #include "freertos/task.h"
-#include "robot_mqtt.h"
-#include "telemetry.h"
+#include "robot_mqtt.hpp"
+#include "telemetry.hpp"
 
 static const char *TAG = "actions";
 
-#define ACTION_MAX 65
-#define COMMAND_RAW_MAX 160
-#define COMMAND_QUEUE_DEPTH 4
-#define STEP_DELAY_MS 200
-#define NEUTRAL_ARM_DEG 0
-#define NEUTRAL_HEAD_DEG 0
+constexpr int ACTION_MAX = 65;
+constexpr int COMMAND_RAW_MAX = 160;
+constexpr int COMMAND_QUEUE_DEPTH = 4;
+constexpr int STEP_DELAY_MS = 200;
+constexpr int NEUTRAL_ARM_DEG = 0;
+constexpr int NEUTRAL_HEAD_DEG = 0;
 
 static const char *const kSemanticActions[] = {
     "IDLE",
@@ -33,8 +33,8 @@ static const char *const kSemanticActions[] = {
     "LISTENING_RETRY",
 };
 
-#define SEMANTIC_ACTION_COUNT \
-    (sizeof(kSemanticActions) / sizeof(kSemanticActions[0]))
+constexpr size_t SEMANTIC_ACTION_COUNT =
+    sizeof(kSemanticActions) / sizeof(kSemanticActions[0]);
 
 typedef struct {
     const char *joint;
@@ -49,7 +49,8 @@ static const joint_limits_t kJointLimits[] = {
     {"right_arm", 0, 180},
 };
 
-#define JOINT_LIMIT_COUNT (sizeof(kJointLimits) / sizeof(kJointLimits[0]))
+constexpr size_t JOINT_LIMIT_COUNT =
+    sizeof(kJointLimits) / sizeof(kJointLimits[0]);
 
 typedef struct {
     const char *joint;
@@ -112,7 +113,7 @@ typedef struct {
 
 static QueueHandle_t s_command_queue;
 
-#define EVENT_JSON_MAX_LOCAL 512
+constexpr int EVENT_JSON_MAX_LOCAL = 512;
 
 static int clamp_to_limits(const char *joint, int target_deg)
 {

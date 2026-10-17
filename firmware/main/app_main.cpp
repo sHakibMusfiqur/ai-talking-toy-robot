@@ -2,29 +2,29 @@
 #include <stdio.h>
 #include <string.h>
 
-#include "actions.h"
-#include "backend_client.h"
-#include "conversation.h"
+#include "actions.hpp"
+#include "backend_client.hpp"
+#include "conversation.hpp"
 #include "driver/gpio.h"
 #include "esp_log.h"
 #include "esp_timer.h"
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
-#include "identity.h"
+#include "identity.hpp"
 #include "nvs_flash.h"
-#include "robot_mqtt.h"
+#include "robot_mqtt.hpp"
 #include "sdkconfig.h"
-#include "telemetry.h"
-#include "wifi.h"
-#include "wifi_provision.h"
+#include "telemetry.hpp"
+#include "wifi.hpp"
+#include "wifi_provision.hpp"
 
 static const char *TAG = "app_main";
 
-#define BACKOFF_MIN_MS 1000
-#define BACKOFF_MAX_MS 30000
-#define CONNECT_WAIT_MS 15000
-#define WIFI_WAIT_MS 30000
-#define TOKEN_REFRESH_MIN_S 60
+constexpr int BACKOFF_MIN_MS = 1000;
+constexpr int BACKOFF_MAX_MS = 30000;
+constexpr int CONNECT_WAIT_MS = 15000;
+constexpr int WIFI_WAIT_MS = 30000;
+constexpr int TOKEN_REFRESH_MIN_S = 60;
 #define AUTH_FAILURE_PROVISION_THRESHOLD 3
 
 typedef enum {
@@ -121,7 +121,8 @@ static void check_factory_reset(void)
     if (gpio_config(&io) != ESP_OK) {
         return;
     }
-    if (gpio_get_level(CONFIG_ROBOT_FACTORY_RESET_GPIO) == 0) {
+    if (gpio_get_level(
+            static_cast<gpio_num_t>(CONFIG_ROBOT_FACTORY_RESET_GPIO)) == 0) {
         ESP_LOGW(TAG,
                  "factory-reset button held at boot, erasing saved Wi-Fi "
                  "(GPIO %d)",
@@ -130,7 +131,7 @@ static void check_factory_reset(void)
     }
 }
 
-void app_main(void)
+extern "C" void app_main(void)
 {
     esp_err_t err = nvs_flash_init();
     if (err == ESP_ERR_NVS_NO_FREE_PAGES ||

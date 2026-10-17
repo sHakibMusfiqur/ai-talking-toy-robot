@@ -1,4 +1,4 @@
-#include "backend_client.h"
+#include "backend_client.hpp"
 
 #include <stdio.h>
 #include <string.h>
@@ -9,20 +9,20 @@
 #include "esp_crt_bundle.h"
 #include "esp_http_client.h"
 #include "esp_log.h"
-#include "identity.h"
+#include "identity.hpp"
 #include "sdkconfig.h"
 
 static const char *TAG = "backend_client";
 
-#define HTTP_RESPONSE_MAX 4096
-#define TOKEN_MAX 2048
-#define CHALLENGE_MAX 160
-#define CHALLENGE_ID_MAX 64
-#define SIGNATURE_B64_MAX 256
+constexpr int HTTP_RESPONSE_MAX = 4096;
+constexpr int TOKEN_MAX = 2048;
+constexpr int CHALLENGE_MAX = 160;
+constexpr int CHALLENGE_ID_MAX = 64;
+constexpr int SIGNATURE_B64_MAX = 256;
 
 #define CONV_AUDIO_UPLOAD_PATH "/api/v1/conversations/turn/audio"
 #define CONV_UPLOAD_MAX_BODY_BYTES (1024 * 1024 + 16 * 1024)
-#define CONV_UPLOAD_TIMEOUT_MS 20000
+constexpr int CONV_UPLOAD_TIMEOUT_MS = 20000;
 
 #define DEVICE_CLAIM_TICKETS_PATH "/api/v1/devices/claim-tickets/"
 #define CLAIM_URL_PATH "/onboarding/claim/"
@@ -56,7 +56,7 @@ static esp_err_t http_event_handler(esp_http_client_event_t *evt)
         resp->buf[resp->len] = '\0';
     } else if (evt->event_id == HTTP_EVENT_ON_FINISH) {
         resp->status_code = esp_http_client_get_status_code(evt->client);
-    } else if (evt->event_id == HTTP_EVENT_HEADERS) {
+    } else if (evt->event_id == HTTP_EVENT_ON_HEADER) {
         if (evt->header_key == NULL || evt->header_value == NULL) {
             return ESP_OK;
         }
@@ -108,10 +108,10 @@ static esp_err_t post_json(const char *path, const char *body,
     esp_http_client_config_t cfg = {
         .url = url,
         .method = HTTP_METHOD_POST,
-        .event_handler = http_event_handler,
-        .user_data = &resp,
         .timeout_ms = 15000,
+        .event_handler = http_event_handler,
         .buffer_size = 2048,
+        .user_data = &resp,
     };
     if (CONFIG_ROBOT_BACKEND_USE_TLS) {
         if (strlen(CONFIG_ROBOT_BACKEND_CA_PEM) > 0) {
@@ -435,10 +435,10 @@ esp_err_t backend_upload_audio_turn(const char *body, size_t body_len,
     esp_http_client_config_t cfg = {
         .url = url,
         .method = HTTP_METHOD_POST,
-        .event_handler = http_event_handler,
-        .user_data = &resp,
         .timeout_ms = CONV_UPLOAD_TIMEOUT_MS,
+        .event_handler = http_event_handler,
         .buffer_size = 2048,
+        .user_data = &resp,
     };
     if (CONFIG_ROBOT_BACKEND_USE_TLS) {
         if (strlen(CONFIG_ROBOT_BACKEND_CA_PEM) > 0) {

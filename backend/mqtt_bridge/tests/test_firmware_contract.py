@@ -16,25 +16,27 @@ REQUIRED_FILES = (
     "sdkconfig.defaults",
     "main/CMakeLists.txt",
     "main/Kconfig.projbuild",
-    "main/app_main.c",
-    "main/identity.c",
-    "main/identity.h",
-    "main/wifi.c",
-    "main/wifi.h",
-    "main/backend_client.c",
-    "main/backend_client.h",
+    "main/app_main.cpp",
+    "main/identity.cpp",
+    "main/identity.hpp",
+    "main/wifi.cpp",
+    "main/wifi.hpp",
+    "main/wifi_provision.cpp",
+    "main/wifi_provision.hpp",
+    "main/backend_client.cpp",
+    "main/backend_client.hpp",
     "main/conv_retry_after.h",
     "main/conv_string.h",
-    "main/robot_mqtt.c",
-    "main/robot_mqtt.h",
-    "main/telemetry.c",
-    "main/telemetry.h",
-    "main/actions.c",
-    "main/actions.h",
-    "main/audio_capture.c",
-    "main/audio_capture.h",
-    "main/conversation.c",
-    "main/conversation.h",
+    "main/robot_mqtt.cpp",
+    "main/robot_mqtt.hpp",
+    "main/telemetry.cpp",
+    "main/telemetry.hpp",
+    "main/actions.cpp",
+    "main/actions.hpp",
+    "main/audio_capture.cpp",
+    "main/audio_capture.hpp",
+    "main/conversation.cpp",
+    "main/conversation.hpp",
     "host_test/retry_after_harness.c",
     "host_test/string_utils_harness.c",
 )
@@ -67,13 +69,13 @@ CREDENTIAL_LOG_WORDS = (
 
 def _all_sources():
     files = []
-    for pattern in ("*.c", "*.h", "CMakeLists.txt", "Kconfig.projbuild", "sdkconfig.defaults", ".gitignore"):
+    for pattern in ("*.c", "*.cpp", "*.h", "*.hpp", "CMakeLists.txt", "Kconfig.projbuild", "sdkconfig.defaults", ".gitignore"):
         files.extend(FIRMWARE_DIR.rglob(pattern))
     return [path for path in files if path.is_file()]
 
 
-def _c_sources():
-    return sorted(MAIN_DIR.glob("*.c"))
+def _module_sources():
+    return sorted(MAIN_DIR.glob("*.c")) + sorted(MAIN_DIR.glob("*.cpp"))
 
 
 def _read(path):
@@ -129,9 +131,9 @@ def test_firmware_gitignore_covers_build_and_local_secrets():
 
 
 def test_firmware_semantic_actions_match_backend_contract():
-    source = _read(MAIN_DIR / "actions.c")
+    source = _read(MAIN_DIR / "actions.cpp")
     match = re.search(r"kSemanticActions\[\]\s*=\s*\{(.*?)\};", source, re.S)
-    assert match, "kSemanticActions array not found in actions.c"
+    assert match, "kSemanticActions array not found in actions.cpp"
     firmware_actions = set(re.findall(r'"([A-Z_]+)"', match.group(1)))
     assert firmware_actions == set(SEMANTIC_ACTIONS), (
         f"firmware actions {sorted(firmware_actions)} != "
@@ -140,13 +142,13 @@ def test_firmware_semantic_actions_match_backend_contract():
 
 
 def test_firmware_matches_actions_case_insensitively_but_logs_canonical_name():
-    source = _read(MAIN_DIR / "actions.c")
+    source = _read(MAIN_DIR / "actions.cpp")
     assert "toupper(" in source, "case-insensitive matching missing"
     assert '"Received semantic action: %s"' in source
 
 
 def test_firmware_has_program_for_every_semantic_action():
-    source = _read(MAIN_DIR / "actions.c")
+    source = _read(MAIN_DIR / "actions.cpp")
     for action in SEMANTIC_ACTIONS:
         assert f'"{action}"' in source, action
 
@@ -157,7 +159,7 @@ def test_firmware_subscribes_only_to_its_own_topics():
         assert "robots/#" not in content, f"wildcard in {path.name}"
         assert "robots/+" not in content, f"wildcard in {path.name}"
 
-    source = _read(MAIN_DIR / "robot_mqtt.c")
+    source = _read(MAIN_DIR / "robot_mqtt.cpp")
     subscriptions = re.findall(r"esp_mqtt_client_subscribe\(\s*s_client,\s*([^,]+),", source)
     assert len(subscriptions) == 4, subscriptions
     for arg in subscriptions:
@@ -165,7 +167,7 @@ def test_firmware_subscribes_only_to_its_own_topics():
 
 
 def test_firmware_topic_shapes_match_backend_contract():
-    source = _read(MAIN_DIR / "robot_mqtt.c")
+    source = _read(MAIN_DIR / "robot_mqtt.cpp")
     for shape in (
         "robots/%s/status",
         "robots/%s/heartbeat",
@@ -179,7 +181,7 @@ def test_firmware_topic_shapes_match_backend_contract():
 
 
 def test_firmware_publish_qos_and_retain_match_contract():
-    source = _read(MAIN_DIR / "robot_mqtt.c")
+    source = _read(MAIN_DIR / "robot_mqtt.cpp")
     assert re.search(r"publish_to\(\s*s_topics\.status,\s*1,\s*true,", source)
     assert re.search(r"publish_to\(\s*s_topics\.heartbeat,\s*0,\s*false,", source)
     assert re.search(r"publish_to\(\s*s_topics\.event,\s*1,\s*false,", source)
@@ -187,7 +189,7 @@ def test_firmware_publish_qos_and_retain_match_contract():
 
 
 def test_firmware_lwt_is_offline_retained_status():
-    source = _read(MAIN_DIR / "robot_mqtt.c")
+    source = _read(MAIN_DIR / "robot_mqtt.cpp")
     assert '#define LWT_PAYLOAD "{\\"online\\":false}"' in source
     assert ".session.last_will.qos = 1" in source
     assert ".session.last_will.retain = true" in source
@@ -195,7 +197,7 @@ def test_firmware_lwt_is_offline_retained_status():
 
 def test_firmware_status_keys_stay_within_contract():
     allowed = set(payloads.ALLOWED_STATUS_FIELDS)
-    for line in _read(MAIN_DIR / "telemetry.c").splitlines():
+    for line in _read(MAIN_DIR / "telemetry.cpp").splitlines():
         if '\\"online\\":' not in line:
             continue
         keys = set(re.findall(r'\\"([a-z_]+)\\":', line))
@@ -204,9 +206,9 @@ def test_firmware_status_keys_stay_within_contract():
 
 
 def test_firmware_heartbeat_payload_is_frozen_empty_object():
-    header = _read(MAIN_DIR / "telemetry.h")
+    header = _read(MAIN_DIR / "telemetry.hpp")
     assert '#define TELEMETRY_HEARTBEAT_PAYLOAD "{}"' in header
-    source = _read(MAIN_DIR / "telemetry.c")
+    source = _read(MAIN_DIR / "telemetry.cpp")
     assert "robot_mqtt_publish_heartbeat(TELEMETRY_HEARTBEAT_PAYLOAD" in source
     assert re.search(r"publish_heartbeat\([^)]*\{", source) is None, (
         "heartbeat must only ever send the frozen {} payload"
@@ -214,7 +216,7 @@ def test_firmware_heartbeat_payload_is_frozen_empty_object():
 
 
 def test_firmware_event_envelope_has_only_contract_keys():
-    for path in (MAIN_DIR / "telemetry.c", MAIN_DIR / "actions.c"):
+    for path in (MAIN_DIR / "telemetry.cpp", MAIN_DIR / "actions.cpp"):
         source = _read(path)
         for line in source.splitlines():
             if '"event_type"' not in line:
@@ -245,7 +247,7 @@ def test_firmware_tls_is_on_by_default():
 def test_firmware_tls_always_has_a_trust_source():
     """TLS enabled means a real verification source (pinned CA or the
     certificate bundle) — never a validation-less connection."""
-    for path in (MAIN_DIR / "backend_client.c", MAIN_DIR / "robot_mqtt.c"):
+    for path in (MAIN_DIR / "backend_client.cpp", MAIN_DIR / "robot_mqtt.cpp"):
         source = _read(path)
         has_ca_pin = "CONFIG_ROBOT_" in source and "CA_PEM" in source
         assert has_ca_pin, path.name
@@ -258,7 +260,7 @@ def test_firmware_never_logs_credentials():
     literals) so a credential word or argument on a continuation line
     cannot evade the check. Same word list, statement-level coverage:
     strictly stronger than a line-by-line scan, never weaker."""
-    for path in _c_sources():
+    for path in _module_sources():
         for number, statement in _log_statements(path):
             lowered = statement.lower()
             for word in CREDENTIAL_LOG_WORDS:
@@ -274,12 +276,12 @@ def test_pairing_code_is_printed_exactly_once():
     the claim link could not be created). Each first-setup banner prints it
     at most once and no other file may print it at all."""
     printers = []
-    for path in _c_sources():
+    for path in _module_sources():
         for number, statement in _log_statements(path):
             if "pairing_code" in statement or "Pairing code" in statement:
                 printers.append((path.name, number, statement))
 
-    allowed = {"app_main.c", "wifi_provision.c"}
+    allowed = {"app_main.cpp", "wifi_provision.cpp"}
     by_file = {}
     for name, number, statement in printers:
         assert name in allowed, f"unexpected pairing printer: {name}:{number}"
@@ -289,7 +291,7 @@ def test_pairing_code_is_printed_exactly_once():
         )
         by_file.setdefault(name, []).append(number)
 
-    assert "app_main.c" in by_file, "first-boot pairing banner missing"
+    assert "app_main.cpp" in by_file, "first-boot pairing banner missing"
     for name, lines in by_file.items():
         assert len(lines) == 1, f"{name} prints the pairing code {len(lines)}x"
 
@@ -319,7 +321,7 @@ def test_kconfig_credentials_default_to_empty():
 
 
 def test_identity_is_uuid_v4_with_persistent_keypair():
-    source = _read(MAIN_DIR / "identity.c")
+    source = _read(MAIN_DIR / "identity.cpp")
     assert "generate_uuid_v4" in source
     assert "0x40" in source and "0x80" in source, "UUID version/variant bits missing"
     assert "nvs_set_str(nvs, NVS_KEY_PRIVATE_KEY" in source
@@ -327,7 +329,7 @@ def test_identity_is_uuid_v4_with_persistent_keypair():
 
 
 def test_identity_signs_with_ecdsa_sha256():
-    source = _read(MAIN_DIR / "identity.c")
+    source = _read(MAIN_DIR / "identity.cpp")
     assert "mbedtls_sha256(" in source
     assert "mbedtls_pk_sign(" in source
     assert "MBEDTLS_MD_SHA256" in source
@@ -335,7 +337,7 @@ def test_identity_signs_with_ecdsa_sha256():
 
 
 def test_joint_limits_are_defined_and_enforced():
-    source = _read(MAIN_DIR / "actions.c")
+    source = _read(MAIN_DIR / "actions.cpp")
     assert "static const joint_limits_t kJointLimits[]" in source
     assert "clamp_to_limits(joint, target_deg)" in source, (
         "apply_move must clamp through the limits table"
@@ -348,7 +350,7 @@ def test_joint_limits_are_defined_and_enforced():
 
 
 def test_command_payload_is_parsed_and_unknown_actions_rejected():
-    source = _read(MAIN_DIR / "actions.c")
+    source = _read(MAIN_DIR / "actions.cpp")
     assert 'cJSON_GetObjectItem(parsed, "action")' in source
     assert "match_semantic_action" in source
     assert '"unknown_action"' in source
@@ -356,7 +358,7 @@ def test_command_payload_is_parsed_and_unknown_actions_rejected():
 
 
 def test_app_main_tracks_the_required_connection_states():
-    source = _read(MAIN_DIR / "app_main.c")
+    source = _read(MAIN_DIR / "app_main.cpp")
     for state in (
         "WIFI_DISCONNECTED",
         "WIFI_CONNECTED",
@@ -392,8 +394,8 @@ def test_firmware_requires_i2s_and_psram_components():
     requires = content.split("REQUIRES", 1)[1]
     assert re.search(r"^\s*driver\s*$", requires, re.M), "driver missing"
     assert re.search(r"^\s*esp_psram\s*$", requires, re.M), "esp_psram missing"
-    assert '"audio_capture.c"' in content
-    assert '"conversation.c"' in content
+    assert '"audio_capture.cpp"' in content
+    assert '"conversation.cpp"' in content
 
 
 def test_kconfig_ptt_defaults_to_disabled():
@@ -434,7 +436,7 @@ def test_kconfig_language_hint_defaults_to_en():
 
 
 def test_capture_bounds_match_frozen_constants():
-    header = _read(MAIN_DIR / "audio_capture.h")
+    header = _read(MAIN_DIR / "audio_capture.hpp")
     assert "#define AUDIO_CAPTURE_SAMPLE_RATE_HZ 16000" in header
     assert "#define AUDIO_CAPTURE_BITS_PER_SAMPLE 16" in header
     assert "#define AUDIO_CAPTURE_CHANNELS 1" in header
@@ -449,7 +451,7 @@ def test_capture_bounds_match_frozen_constants():
 
 
 def test_wav_header_is_riff_pcm16le_mono_16k():
-    source = _read(MAIN_DIR / "audio_capture.c")
+    source = _read(MAIN_DIR / "audio_capture.cpp")
     for marker in ('"RIFF"', '"WAVE"', '"fmt "', '"data"'):
         assert marker in source, marker
     assert "write_u16le(hdr44 + 20, 1)" in source, "PCM format tag missing"
@@ -459,19 +461,19 @@ def test_wav_header_is_riff_pcm16le_mono_16k():
 
 
 def test_upload_targets_frozen_audio_endpoint():
-    source = _read(MAIN_DIR / "backend_client.c")
+    source = _read(MAIN_DIR / "backend_client.cpp")
     assert '"/api/v1/conversations/turn/audio"' in source
 
 
 def test_multipart_headers_and_sidecar_match_contract():
-    client = _read(MAIN_DIR / "backend_client.c")
+    client = _read(MAIN_DIR / "backend_client.cpp")
     assert 'multipart/form-data; boundary=%s' in client
     assert '"Conversation-Sidecar"' in client
     assert '"Idempotency-Key"' in client
     assert '"Authorization"' in client
     assert '"Bearer %s"' in client, "device JWT must be sent as Bearer auth"
     assert "s_token" in client
-    conversation = _read(MAIN_DIR / "conversation.c")
+    conversation = _read(MAIN_DIR / "conversation.cpp")
     for part in (
         'name=\\"audio\\"',
         'filename=\\"clip.wav\\"',
@@ -482,7 +484,7 @@ def test_multipart_headers_and_sidecar_match_contract():
 
 
 def test_sidecar_carries_required_child_profile_field():
-    source = _read(MAIN_DIR / "conversation.c")
+    source = _read(MAIN_DIR / "conversation.cpp")
     assert '"{\\"child_profile_id\\":\\"%s\\"' in source or (
         '\\"child_profile_id\\":\\"%s\\"' in source
     ), "sidecar must carry child_profile_id"
@@ -490,7 +492,7 @@ def test_sidecar_carries_required_child_profile_field():
 
 
 def test_idempotency_key_generated_once_per_turn_and_reused():
-    source = _read(MAIN_DIR / "conversation.c")
+    source = _read(MAIN_DIR / "conversation.cpp")
     assert source.count("identity_generate_uuid_v4") == 1, (
         "exactly one key generation per logical turn"
     )
@@ -505,7 +507,7 @@ def test_idempotency_key_generated_once_per_turn_and_reused():
 
 
 def test_retry_policy_covers_status_matrix():
-    source = _read(MAIN_DIR / "conversation.c")
+    source = _read(MAIN_DIR / "conversation.cpp")
     for code in ("400", "401", "404", "409", "429", "503", "200"):
         assert f"meta.status_code == {code}" in source, code
     assert "backend_refresh_token" in source, "401 must refresh once"
@@ -524,7 +526,7 @@ def test_retry_policy_covers_status_matrix():
 
 
 def test_response_validation_accepts_null_audio():
-    source = _read(MAIN_DIR / "conversation.c")
+    source = _read(MAIN_DIR / "conversation.cpp")
     assert (
         'cJSON_IsNull(cJSON_GetObjectItemCaseSensitive(root, "audio"))' in source
     ), "audio:null must be accepted"
@@ -542,31 +544,31 @@ def test_response_validation_accepts_null_audio():
 
 
 def test_capture_stops_on_release_and_timeout():
-    source = _read(MAIN_DIR / "conversation.c")
+    source = _read(MAIN_DIR / "conversation.cpp")
     assert "ptt_pressed()" in source
     assert "AUDIO_CAPTURE_MAX_SECONDS" in source
 
 
 def test_capture_buffer_is_psram_allocated_with_checks():
-    source = _read(MAIN_DIR / "conversation.c")
+    source = _read(MAIN_DIR / "conversation.cpp")
     assert "heap_caps_malloc(needed, MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT)" in source
     assert "s_body_buf == NULL" in source
     assert "telemetry_publish_audio_unavailable(\"buffer_alloc\")" in source
 
 
 def test_fail_safe_on_capture_init_errors():
-    source = _read(MAIN_DIR / "conversation.c")
+    source = _read(MAIN_DIR / "conversation.cpp")
     assert 'telemetry_publish_audio_capture_failed("i2s_init")' in source
     assert '"i2s_read"' in source, "read-loop failure must carry i2s_read reason"
     assert "capture_fail" in source
     assert "audio_capture_deinit()" in source
-    capture = _read(MAIN_DIR / "audio_capture.c")
+    capture = _read(MAIN_DIR / "audio_capture.cpp")
     assert "i2s_del_channel" in capture
     assert "ESP_ERR_INVALID_STATE" in capture
 
 
 def test_audio_events_are_published_with_safe_payloads():
-    telemetry = _read(MAIN_DIR / "telemetry.c")
+    telemetry = _read(MAIN_DIR / "telemetry.cpp")
     for event in (
         "audio.capture_started",
         "audio.capture_completed",
@@ -576,7 +578,7 @@ def test_audio_events_are_published_with_safe_payloads():
         "audio.unavailable",
     ):
         assert f'"{event}"' in telemetry, event
-    conversation = _read(MAIN_DIR / "conversation.c")
+    conversation = _read(MAIN_DIR / "conversation.cpp")
     for publisher in (
         "telemetry_publish_audio_capture_started",
         "telemetry_publish_audio_capture_completed",
@@ -592,7 +594,7 @@ def test_conversation_never_logs_protected_values():
     """PTT MVP addition on top of the credential scanner: child profile
     ids, idempotency keys, and audio material must never reach a log
     statement. Same statement-level scanner as the credential test."""
-    for path in _c_sources():
+    for path in _module_sources():
         for number, statement in _log_statements(path):
             lowered = statement.lower()
             for word in PROTECTED_LOG_WORDS:
@@ -603,18 +605,18 @@ def test_conversation_never_logs_protected_values():
 
 
 def test_upload_enforces_bounds_before_send():
-    client = _read(MAIN_DIR / "backend_client.c")
+    client = _read(MAIN_DIR / "backend_client.cpp")
     assert "body_len > CONV_UPLOAD_MAX_BODY_BYTES" in client
     assert "#define CONV_UPLOAD_MAX_BODY_BYTES (1024 * 1024 + 16 * 1024)" in client
-    conversation = _read(MAIN_DIR / "conversation.c")
+    conversation = _read(MAIN_DIR / "conversation.cpp")
     assert "file_len > CONV_UPLOAD_MAX_FILE_BYTES" in conversation
     assert "total > CONV_UPLOAD_MAX_BODY_BYTES" in conversation
 
 
 def test_app_main_initializes_conversation_subsystem():
-    source = _read(MAIN_DIR / "app_main.c")
+    source = _read(MAIN_DIR / "app_main.cpp")
     assert "conversation_init()" in source
-    assert '#include "conversation.h"' in source
+    assert '#include "conversation.hpp"' in source
 
 
 def _c_array_literals(source, name):
@@ -635,7 +637,7 @@ def test_retry_after_parser_guards_before_multiplication():
     assert "if (seconds > 86400)" not in header, (
         "no post-hoc-only cap; the pre-check is the overflow gate"
     )
-    client = _read(MAIN_DIR / "backend_client.c")
+    client = _read(MAIN_DIR / "backend_client.cpp")
     assert '#include "conv_retry_after.h"' in client
     assert "conv_parse_retry_after" in client
     assert "seconds * 10" not in client, "parser must have a single home"
@@ -684,7 +686,7 @@ def test_retry_after_wait_clamp_is_shared_policy():
     )
     assert "retry_after_s < 0 || retry_after_s > CONV_RETRY_AFTER_CAP_S" in header
     assert "return CONV_RETRY_AFTER_DEFAULT_S;" in header
-    source = _read(MAIN_DIR / "conversation.c")
+    source = _read(MAIN_DIR / "conversation.cpp")
     assert "conv_retry_after_wait_seconds(meta.retry_after_s)" in source, (
         "the 429 branch must use the host-tested clamp helper"
     )
@@ -724,7 +726,7 @@ def test_string_utils_host_behavior(tmp_path):
 
 
 def test_response_key_lookups_are_case_sensitive():
-    source = _read(MAIN_DIR / "conversation.c")
+    source = _read(MAIN_DIR / "conversation.cpp")
     assert "cJSON_GetObjectItem(" not in source, (
         "every response-field lookup must use the case-sensitive API"
     )
@@ -739,7 +741,7 @@ def test_whitespace_rejection_uses_shared_helper():
     header = _read(MAIN_DIR / "conv_string.h")
     for whitespace in ("' '", "'\\t'", "'\\n'", "'\\v'", "'\\f'", "'\\r'"):
         assert whitespace in header, whitespace
-    source = _read(MAIN_DIR / "conversation.c")
+    source = _read(MAIN_DIR / "conversation.cpp")
     assert "conv_string_has_nonwhitespace(item->valuestring)" in source
     assert "item->valuestring[0] != '\\0'" not in source, (
         "first-char-NUL check is superseded by the shared whitespace scan"
@@ -747,7 +749,7 @@ def test_whitespace_rejection_uses_shared_helper():
 
 
 def test_response_validation_checks_all_types_and_nested_structure():
-    source = _read(MAIN_DIR / "conversation.c")
+    source = _read(MAIN_DIR / "conversation.cpp")
     assert "object_has_exact_keys(root, k_response_fields, 8)" in source
     assert "json_nonempty_string" in source
     assert "json_string_in_set" in source
@@ -765,7 +767,7 @@ def test_response_validation_checks_all_types_and_nested_structure():
 def test_response_enum_tables_match_backend_contract():
     from conversations import ai_contract
 
-    source = _read(MAIN_DIR / "conversation.c")
+    source = _read(MAIN_DIR / "conversation.cpp")
     expected = {
         "k_response_fields": ai_contract.OUTPUT_FIELDS,
         "k_languages": ai_contract.LANGUAGES,
@@ -783,7 +785,7 @@ def test_response_enum_tables_match_backend_contract():
 
 
 def test_nonretryable_statuses_break_without_retry():
-    source = _read(MAIN_DIR / "conversation.c")
+    source = _read(MAIN_DIR / "conversation.cpp")
     upload_section = source.split("static void run_upload", 1)[1].split(
         "static void run_turn", 1
     )[0]
@@ -798,7 +800,7 @@ def test_nonretryable_statuses_break_without_retry():
 
 
 def test_401_refresh_is_limited_to_one_attempt():
-    source = _read(MAIN_DIR / "conversation.c")
+    source = _read(MAIN_DIR / "conversation.cpp")
     upload_section = source.split("static void run_upload", 1)[1].split(
         "static void run_turn", 1
     )[0]
@@ -815,7 +817,7 @@ def test_401_refresh_is_limited_to_one_attempt():
 
 
 def test_upload_body_and_key_are_reused_across_attempts():
-    source = _read(MAIN_DIR / "conversation.c")
+    source = _read(MAIN_DIR / "conversation.cpp")
     upload_section = source.split("static void run_upload", 1)[1].split(
         "static void run_turn", 1
     )[0]
@@ -828,7 +830,7 @@ def test_upload_body_and_key_are_reused_across_attempts():
 
 def test_response_body_is_never_logged():
     identifier = re.compile(r"\bresponse\b")
-    for path in (MAIN_DIR / "conversation.c", MAIN_DIR / "backend_client.c"):
+    for path in (MAIN_DIR / "conversation.cpp", MAIN_DIR / "backend_client.cpp"):
         for number, statement in _log_statements(path):
             without_strings = re.sub(r'"(?:[^"\\]|\\.)*"', '""', statement)
             assert not identifier.search(without_strings), (
@@ -842,8 +844,11 @@ def test_response_body_is_never_logged():
     reason="ESP-IDF toolchain (idf.py) not available — firmware build NOT TESTED",
 )
 def test_firmware_builds_with_espidf(tmp_path):
+    # shell=True so Windows can resolve the toolchain's idf.py.bat/cmd
+    # shim (bare-name list args only resolve .exe via CreateProcess).
     result = subprocess.run(
-        ["idf.py", "build"],
+        "idf.py build",
+        shell=True,
         cwd=FIRMWARE_DIR,
         capture_output=True,
         text=True,

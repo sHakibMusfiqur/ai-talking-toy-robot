@@ -1,10 +1,10 @@
-#include "wifi_provision.h"
+#include "wifi_provision.hpp"
 
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
 
-#include "backend_client.h"
+#include "backend_client.hpp"
 #include "cJSON.h"
 #include "driver/gpio.h"
 #include "esp_http_server.h"
@@ -17,25 +17,25 @@
 #include "freertos/FreeRTOS.h"
 #include "freertos/semphr.h"
 #include "freertos/task.h"
-#include "identity.h"
+#include "identity.hpp"
 #include "nvs.h"
 #include "sdkconfig.h"
-#include "wifi.h"
+#include "wifi.hpp"
 
 static const char *TAG = "provision";
 
-extern const uint8_t setup_html_start[] asm("_binary_www_setup_html_start");
-extern const uint8_t setup_html_end[] asm("_binary_www_setup_html_end");
+extern const uint8_t setup_html_start[] asm("_binary_setup_html_start");
+extern const uint8_t setup_html_end[] asm("_binary_setup_html_end");
 
-#define PROV_TOKEN_HEX_LEN 32
-#define PROV_HEADER_MAX 40
-#define SCAN_MAX_RESULTS 16
-#define CONNECT_TIMEOUT_MS 30000
-#define AUTH_FAILURE_DECISION_COUNT 2
-#define CLAIM_TICKET_MAX 128
-#define CLAIM_URL_MAX 320
-#define REQUEST_BODY_MAX 512
-#define FAIL_REASON_MAX 16
+constexpr int PROV_TOKEN_HEX_LEN = 32;
+constexpr int PROV_HEADER_MAX = 40;
+constexpr int SCAN_MAX_RESULTS = 16;
+constexpr int CONNECT_TIMEOUT_MS = 30000;
+constexpr int AUTH_FAILURE_DECISION_COUNT = 2;
+constexpr int CLAIM_TICKET_MAX = 128;
+constexpr int CLAIM_URL_MAX = 320;
+constexpr int REQUEST_BODY_MAX = 512;
+constexpr int FAIL_REASON_MAX = 16;
 
 #define NVS_NAMESPACE "wifi"
 #define NVS_KEY_SETUP_PASS "setup_pass"
@@ -194,7 +194,7 @@ static char *render_page(size_t *out_len)
         return NULL;
     }
 
-    char *out = malloc((size_t)total + 1);
+    char *out = static_cast<char *>(malloc((size_t)total + 1));
     if (out == NULL) {
         return NULL;
     }
@@ -303,7 +303,7 @@ static esp_err_t handle_scan(httpd_req_t *req)
 
 static bool read_json_body(httpd_req_t *req, char *buf, size_t buf_len)
 {
-    size_t content_len = httpd_req_get_content_len(req);
+    size_t content_len = req->content_len;
     if (content_len == 0 || content_len >= buf_len) {
         return false;
     }
@@ -567,7 +567,7 @@ static void setup_indication_init(void)
         .intr_type = GPIO_INTR_DISABLE,
     };
     if (gpio_config(&io) == ESP_OK) {
-        gpio_set_level(CONFIG_ROBOT_SETUP_LED_GPIO, 1);
+        gpio_set_level(static_cast<gpio_num_t>(CONFIG_ROBOT_SETUP_LED_GPIO), 1);
         ESP_LOGI(TAG, "setup indicator on GPIO %d",
                  CONFIG_ROBOT_SETUP_LED_GPIO);
     }

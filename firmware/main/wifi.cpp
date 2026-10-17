@@ -1,4 +1,4 @@
-#include "wifi.h"
+#include "wifi.hpp"
 
 #include <inttypes.h>
 #include <string.h>
@@ -15,9 +15,9 @@
 
 static const char *TAG = "wifi";
 
-#define WIFI_CONNECTED_BIT BIT0
-#define BACKOFF_MIN_MS 1000
-#define BACKOFF_MAX_MS 30000
+constexpr EventBits_t WIFI_CONNECTED_BIT = BIT0;
+constexpr int BACKOFF_MIN_MS = 1000;
+constexpr int BACKOFF_MAX_MS = 30000;
 
 #define NVS_NAMESPACE "wifi"
 #define NVS_KEY_SSID "ssid"

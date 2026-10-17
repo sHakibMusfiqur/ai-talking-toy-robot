@@ -1,26 +1,26 @@
-#include "robot_mqtt.h"
+#include "robot_mqtt.hpp"
 
 #include <stdio.h>
 #include <string.h>
 
-#include "actions.h"
-#include "backend_client.h"
+#include "actions.hpp"
+#include "backend_client.hpp"
 #include "cJSON.h"
 #include "esp_crt_bundle.h"
 #include "esp_log.h"
 #include "freertos/FreeRTOS.h"
 #include "freertos/event_groups.h"
 #include "freertos/task.h"
-#include "identity.h"
+#include "identity.hpp"
 #include "mqtt_client.h"
 #include "sdkconfig.h"
-#include "wifi.h"
+#include "wifi.hpp"
 
 static const char *TAG = "robot_mqtt";
 
-#define MQTT_CONNECTED_BIT BIT0
-#define TOPIC_MAX 96
-#define INBOUND_PAYLOAD_MAX 1024
+constexpr EventBits_t MQTT_CONNECTED_BIT = BIT0;
+constexpr int TOPIC_MAX = 96;
+constexpr int INBOUND_PAYLOAD_MAX = 1024;
 #define LWT_PAYLOAD "{\"online\":false}"
 
 typedef struct {
@@ -100,7 +100,8 @@ static void mqtt_event_handler(void *arg, esp_event_base_t base,
 {
     (void)arg;
     (void)base;
-    esp_mqtt_event_handle_t event = event_data;
+    esp_mqtt_event_handle_t event =
+        static_cast<esp_mqtt_event_handle_t>(event_data);
 
     switch ((esp_mqtt_event_id_t)event_id) {
     case MQTT_EVENT_CONNECTED:
@@ -161,30 +162,29 @@ esp_err_t robot_mqtt_start(void)
         return ESP_ERR_INVALID_STATE;
     }
 
-    esp_mqtt_client_config_t cfg = {
-        .broker.address.hostname = CONFIG_ROBOT_MQTT_HOST,
-        .broker.address.port = CONFIG_ROBOT_MQTT_PORT,
-        .credentials.username = identity_device_id(),
-        .credentials.authentication.password = backend_device_token(),
-        .session.keepalive = CONFIG_ROBOT_MQTT_KEEPALIVE_S,
-        .session.last_will.topic = s_topics.status,
-        .session.last_will.msg = LWT_PAYLOAD,
-        .session.last_will.msg_len = (int)strlen(LWT_PAYLOAD),
-        .session.last_will.qos = 1,
-        .session.last_will.retain = true,
-        .network.timeout_ms = 10000,
-        .disable_auto_reconnect = true,
-    };
+    esp_mqtt_client_config_t cfg = {};
+    cfg.broker.address.hostname = CONFIG_ROBOT_MQTT_HOST;
+    cfg.broker.address.port = CONFIG_ROBOT_MQTT_PORT;
+    cfg.credentials.username = identity_device_id();
+    cfg.credentials.authentication.password = backend_device_token();
+    cfg.session.last_will.topic = s_topics.status;
+    cfg.session.last_will.msg = LWT_PAYLOAD;
+    cfg.session.last_will.msg_len = (int)strlen(LWT_PAYLOAD);
+    cfg.session.last_will.qos = 1;
+    cfg.session.last_will.retain = true;
+    cfg.session.keepalive = CONFIG_ROBOT_MQTT_KEEPALIVE_S;
+    cfg.network.timeout_ms = 10000;
+    cfg.network.disable_auto_reconnect = true;
 
     if (CONFIG_ROBOT_MQTT_USE_TLS) {
-        cfg.broker.address.transport = MQTT_TRANSPORT_SECURE;
+        cfg.broker.address.transport = MQTT_TRANSPORT_OVER_SSL;
         if (strlen(CONFIG_ROBOT_MQTT_CA_PEM) > 0) {
             cfg.broker.verification.certificate = CONFIG_ROBOT_MQTT_CA_PEM;
         } else {
             cfg.broker.verification.crt_bundle_attach = esp_crt_bundle_attach;
         }
     } else {
-        cfg.broker.address.transport = MQTT_TRANSPORT_TCP;
+        cfg.broker.address.transport = MQTT_TRANSPORT_OVER_TCP;
         ESP_LOGW(TAG, "broker TLS disabled (lab mode only)");
     }
 
@@ -192,8 +192,9 @@ esp_err_t robot_mqtt_start(void)
     if (s_client == NULL) {
         return ESP_ERR_NO_MEM;
     }
-    esp_err_t err = esp_mqtt_client_register_event(s_client, ESP_EVENT_ANY_ID,
-                                                   mqtt_event_handler, NULL);
+    esp_err_t err = esp_mqtt_client_register_event(
+        s_client, static_cast<esp_mqtt_event_id_t>(ESP_EVENT_ANY_ID),
+        mqtt_event_handler, NULL);
     if (err != ESP_OK) {
         esp_mqtt_client_destroy(s_client);
         s_client = NULL;

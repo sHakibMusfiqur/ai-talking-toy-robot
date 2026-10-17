@@ -1,4 +1,4 @@
-#include "audio_capture.h"
+#include "audio_capture.hpp"
 
 #include <string.h>
 
@@ -51,10 +51,10 @@ esp_err_t audio_capture_init(void)
         .gpio_cfg =
             {
                 .mclk = I2S_GPIO_UNUSED,
-                .bclk = CONFIG_ROBOT_MIC_I2S_BCLK,
-                .ws = CONFIG_ROBOT_MIC_I2S_WS,
+                .bclk = static_cast<gpio_num_t>(CONFIG_ROBOT_MIC_I2S_BCLK),
+                .ws = static_cast<gpio_num_t>(CONFIG_ROBOT_MIC_I2S_WS),
                 .dout = I2S_GPIO_UNUSED,
-                .din = CONFIG_ROBOT_MIC_I2S_DIN,
+                .din = static_cast<gpio_num_t>(CONFIG_ROBOT_MIC_I2S_DIN),
             },
     };
 
