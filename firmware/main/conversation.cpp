@@ -371,6 +371,12 @@ static void run_turn(void)
         return;
     }
 
+    if (pcm_len < AUDIO_CAPTURE_MIN_PCM_BYTES) {
+        telemetry_publish_audio_capture_failed("too_short");
+        telemetry_set_state("IDLE");
+        return;
+    }
+
     audio_capture_fill_wav_header(s_body_buf + s_prefix_len,
                                   (uint32_t)pcm_len);
     size_t file_len = AUDIO_WAV_HEADER_BYTES + pcm_len;

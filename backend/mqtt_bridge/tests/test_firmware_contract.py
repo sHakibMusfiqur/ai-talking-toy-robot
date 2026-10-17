@@ -549,6 +549,30 @@ def test_capture_stops_on_release_and_timeout():
     assert "AUDIO_CAPTURE_MAX_SECONDS" in source
 
 
+def test_short_captures_are_rejected_before_upload():
+    header = _read(MAIN_DIR / "audio_capture.hpp")
+    assert "AUDIO_CAPTURE_MIN_PCM_BYTES" in header
+    # 100 ms of PCM16 mono @ 16 kHz = 3200 bytes in the actual buffer
+    # representation (16000 samples/s * 2 bytes/sample * 0.1 s).
+    assert (16000 * 2 * 1 * 100) // 1000 == 3200
+    source = _read(MAIN_DIR / "conversation.cpp")
+    guard = "pcm_len < AUDIO_CAPTURE_MIN_PCM_BYTES"
+    assert guard in source
+    before, after = source.split(guard, 1)
+    assert before.rfind("audio_capture_deinit();") != -1, (
+        "capture resources must be released before the guard"
+    )
+    assert "audio_capture_fill_wav_header" not in before
+    block = after.split("}", 1)[0]
+    assert 'telemetry_publish_audio_capture_failed("too_short")' in block
+    assert 'telemetry_set_state("IDLE")' in block
+    assert "return;" in block
+    tail = after.split("audio_capture_fill_wav_header", 1)[0]
+    assert "run_upload" not in tail, (
+        "a rejected capture must never reach the upload path"
+    )
+
+
 def test_capture_buffer_is_psram_allocated_with_checks():
     source = _read(MAIN_DIR / "conversation.cpp")
     assert "heap_caps_malloc(needed, MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT)" in source
