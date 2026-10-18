@@ -12,6 +12,13 @@
     return document.getElementById(elementId);
   }
 
+  /* Lets the optional 3D face module (robotFace.js) react to confirmed data.
+     Dispatch-only: no rendering behavior changes here, and the face module
+     tolerates never being loaded. */
+  function emitFaceEvent(kind, detail) {
+    document.dispatchEvent(new CustomEvent("robotface:" + kind, { detail: detail }));
+  }
+
   function failServiceUnavailable() {
     var message =
       "Live robot data is unavailable. Please reload the page.";
@@ -251,6 +258,11 @@
 
     setBlockState("state-block", "values");
     showView(stateViews, "values");
+    emitFaceEvent("state", {
+      online: data.online,
+      state: data.state,
+      battery: data.battery_percent
+    });
   }
 
   function loadState() {
@@ -559,6 +571,11 @@
     setCommandsDisabled(false);
     button.classList.remove("is-busy");
     button.classList.add("is-ok");
+    emitFaceEvent("command", {
+      phase: "done",
+      action: button.getAttribute("data-action"),
+      ok: true
+    });
     refreshEventsQuietly();
     quietStateRefresh();
   }
@@ -567,6 +584,11 @@
     commandInFlight = false;
     setCommandsDisabled(false);
     button.classList.remove("is-busy");
+    emitFaceEvent("command", {
+      phase: "done",
+      action: button.getAttribute("data-action"),
+      ok: false
+    });
   }
 
   function sendCommand(button) {
@@ -577,6 +599,7 @@
     button.classList.add("is-busy");
     var label = button.textContent.trim();
     var action = button.getAttribute("data-action");
+    emitFaceEvent("command", { phase: "pending", action: action });
 
     if (IS_MOCK) {
       setCommandStatus("Queuing " + label + "…", null);

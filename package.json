@@ -4,9 +4,11 @@
   "description": "Minimal Tailwind CSS v3 build for the Django Controller UI (no framework, no Vite).",
   "scripts": {
     "build:css": "tailwindcss -i frontend/styles/input.css -o backend/static/css/app.css --minify",
-    "watch:css": "tailwindcss -i frontend/styles/input.css -o backend/static/css/app.css --watch"
+    "watch:css": "tailwindcss -i frontend/styles/input.css -o backend/static/css/app.css --watch",
+    "copy:three": "node frontend/scripts/copy-three.js"
   },
   "devDependencies": {
-    "tailwindcss": "^3.4.17"
+    "tailwindcss": "^3.4.17",
+    "three": "^0.186.1"
   }
 }

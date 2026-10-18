@@ -50,7 +50,16 @@
       <!-- Robot preview + live status + robot actions -->
       <div class="mt-6 grid gap-5 lg:grid-cols-[minmax(0,1fr)_minmax(0,2.15fr)]">
         <figure class="preview-card glass m-0 overflow-hidden rounded-3xl">
-          <img src="{% static 'img/robot-placeholder.svg' %}" alt="Robot preview" class="block h-[420px] w-full object-cover lg:h-full">
+          <div id="robot-face" class="relative h-[420px] w-full lg:h-full" data-face-state="loading" role="region" aria-label="Robot face preview">
+            <div id="face-loading" role="status" class="absolute inset-0 grid place-items-center">
+              <span class="sr-only">Loading robot face&hellip;</span>
+              <div class="skeleton h-40 w-40 rounded-full" aria-hidden="true"></div>
+            </div>
+            <div id="face-fallback" hidden class="absolute inset-0 grid place-items-center px-6 text-center">
+              <p id="face-fallback-text" class="text-sm text-muted">3D preview unavailable in this browser.</p>
+            </div>
+          </div>
+          <p class="sr-only" id="face-status" role="status" aria-live="polite"></p>
         </figure>
 
         <div class="flex min-w-0 flex-col gap-5">
@@ -237,11 +246,15 @@
 </div>
 {% endblock %}
 {% block scripts %}
-<script src="{% static 'js/dashboard.js' %}"></script>
-<script src="{% static 'js/api.js' %}"></script>
-<script src="{% static 'js/mocks/robotMock.js' %}"></script>
-<script src="{% static 'js/services/robotMockService.js' %}"></script>
-<script src="{% static 'js/services/robotCommandService.js' %}"></script>
-<script src="{% static 'js/ui/toast.js' %}"></script>
-<script src="{% static 'js/controller.js' %}"></script>
+<script type="importmap">
+{"imports": {"three": "{% static 'vendor/three/three.module.js' %}?v={{ asset_version }}"}}
+</script>
+<script src="{% static 'js/dashboard.js' %}?v={{ asset_version }}"></script>
+<script src="{% static 'js/api.js' %}?v={{ asset_version }}"></script>
+<script src="{% static 'js/mocks/robotMock.js' %}?v={{ asset_version }}"></script>
+<script src="{% static 'js/services/robotMockService.js' %}?v={{ asset_version }}"></script>
+<script src="{% static 'js/services/robotCommandService.js' %}?v={{ asset_version }}"></script>
+<script src="{% static 'js/ui/toast.js' %}?v={{ asset_version }}"></script>
+<script src="{% static 'js/controller.js' %}?v={{ asset_version }}"></script>
+<script type="module" src="{% static 'js/robotFace.js' %}?v={{ asset_version }}"></script>
 {% endblock %}

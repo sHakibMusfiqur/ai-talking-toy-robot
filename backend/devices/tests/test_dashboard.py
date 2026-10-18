@@ -443,15 +443,134 @@ def test_controller_page_loads_mock_service_layer(api_client, parent):
         "js/ui/toast.js",
     ):
         assert asset in html, asset
-    assert "img/robot-placeholder.svg" in html
+    assert 'id="robot-face"' in html
 
 
-def test_controller_page_uses_local_placeholder_only(api_client, parent):
+def test_controller_page_loads_no_external_or_static_robot_image(api_client, parent):
     robot = _robot(parent)
     html = api_client.get(controller_url(robot)).content.decode()
     assert 'src="http' not in html
     assert 'href="http' not in html
-    assert 'src="/static/img/robot-placeholder.svg"' in html
+    # The preview is the real 3D face container - never a static robot image.
+    assert "<img" not in html
+    assert "robot-placeholder" not in html
+    assert 'id="robot-face"' in html
+
+
+# --- Interactive 3D robot face --------------------------------------------
+
+
+def test_controller_page_renders_3d_face_with_loading_and_fallback(api_client, parent):
+    robot = _robot(parent)
+    html = api_client.get(controller_url(robot)).content.decode()
+    assert 'id="robot-face"' in html
+    assert 'data-face-state="loading"' in html
+    assert 'id="face-loading"' in html
+    assert 'id="face-fallback"' in html
+    assert 'id="face-fallback-text"' in html
+    assert 'aria-label="Robot face preview"' in html
+    assert 'aria-live="polite"' in html
+    assert "<img" not in html
+
+
+def test_controller_page_loads_three_via_local_importmap(api_client, parent):
+    robot = _robot(parent)
+    html = api_client.get(controller_url(robot)).content.decode()
+    assert '<script type="importmap">' in html
+    assert '"three": "/static/vendor/three/three.module.js?v=' in html
+    assert "https://" not in html
+    assert 'type="module"' in html
+    assert "js/robotFace.js" in html
+    # The import map must be declared before the module that uses it.
+    assert html.index('<script type="importmap">') < html.index('type="module"')
+
+
+def test_controller_scripts_carry_asset_version(api_client, parent):
+    """Every controller script (incl. the new face module) must be cache-busted
+    - controller.js edits would otherwise serve stale from browser cache."""
+    robot = _robot(parent)
+    html = api_client.get(controller_url(robot)).content.decode()
+    for asset in (
+        "js/dashboard.js",
+        "js/api.js",
+        "js/mocks/robotMock.js",
+        "js/services/robotMockService.js",
+        "js/services/robotCommandService.js",
+        "js/ui/toast.js",
+        "js/controller.js",
+        "js/robotFace.js",
+    ):
+        assert f'src="/static/{asset}?v={settings.ASSET_VERSION}"' in html, asset
+
+
+def test_three_vendor_files_are_shipped():
+    vendor = Path(__file__).resolve().parents[2] / "static" / "vendor" / "three"
+    for name in ("three.module.js", "three.core.js"):
+        assert (vendor / name).is_file(), name
+    module = (vendor / "three.module.js").read_text(encoding="utf-8")
+    assert "./three.core.js" in module
+
+
+def test_robot_face_module_maps_confirmed_states_and_documents_provenance():
+    js_dir = Path(__file__).resolve().parents[2] / "static" / "js"
+    source = (js_dir / "robotFace.js").read_text(encoding="utf-8")
+    # Real-telemetry state names the approved mapping keys off.
+    for token in (
+        '"CAPTURING"',
+        '"PROCESSING"',
+        '"LISTENING_RETRY"',
+        '"DANCE"',
+        '"WAVE"',
+        "LOW_BATTERY",
+        "robotface:state",
+        "robotface:command",
+        "prefers-reduced-motion",
+        "hasWebGL",
+        "3D preview unavailable",
+        "REAL DEVICE TELEMETRY",
+        "INFERRED",
+    ):
+        assert token in source, token
+    # The face module must never fall back to a static image asset.
+    for forbidden in (".png", ".gif", ".svg", "robot-placeholder"):
+        assert forbidden not in source, forbidden
+
+
+def test_robot_face_reduced_motion_events_update_expression():
+    """F3 regression: robotface:* document listeners call the outer `wake`
+    binding. start() must ASSIGN that binding - a nested wake declaration
+    would shadow the stub and reduced-motion users would never see
+    event-driven mood updates (no continuous loop to fall back on)."""
+    js_dir = Path(__file__).resolve().parents[2] / "static" / "js"
+    source = (js_dir / "robotFace.js").read_text(encoding="utf-8")
+    # Outer no-op stub exists so listeners registered before three.js loads
+    # never throw.
+    assert "var wake = function () {};" in source
+    # The nested declaration bug: `function wake(...)` anywhere redeclares a
+    # scope-local binding and leaves listeners pointing at the stub.
+    assert not re.search(r"\bfunction\s+wake\s*\(", source)
+    # Real implementation is assigned to the shared binding inside start().
+    assign = "wake = function () {"
+    assert assign in source
+    assign_body = source[source.index(assign) :]
+    assert "if (reduced) frame(" in assign_body
+    # Both face events reach that binding.
+    state_listener = source[source.index('addEventListener("robotface:state"') :]
+    assert "wake();" in state_listener[: state_listener.index("});")]
+    command_listener = source[source.index('addEventListener("robotface:command"') :]
+    assert "wake();" in command_listener[: command_listener.index("});")]
+
+
+def test_controller_js_dispatches_confirmed_state_and_command_events():
+    js_dir = Path(__file__).resolve().parents[2] / "static" / "js"
+    source = (js_dir / "controller.js").read_text(encoding="utf-8")
+    assert 'emitFaceEvent("state"' in source
+    assert 'emitFaceEvent("command"' in source
+    assert 'new CustomEvent("robotface:" + kind' in source
+    # Control-panel contracts must remain byte-identical.
+    assert "API.sendCommand(ROBOT_ID, action)" in source
+    assert '$("offline-hint").hidden = data.online !== false;' in source
+    assert "if (commandInFlight) return;" in source
 
 
 def test_sidebar_future_sections_are_disabled_not_linked(api_client, parent):

@@ -144,7 +144,7 @@ STATICFILES_DIRS = [BASE_DIR / "static"]
 # configured here — production serving belongs to the deployment phase.
 STATIC_ROOT = BASE_DIR / "staticfiles"
 
-ASSET_VERSION = os.environ.get("ASSET_VERSION", "2026-10-16-2")
+ASSET_VERSION = os.environ.get("ASSET_VERSION", "2026-10-18-1")
 
 DEFAULT_AUTO_FIELD = "django_mongodb_backend.fields.ObjectIdAutoField"
 
