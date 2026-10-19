@@ -636,6 +636,20 @@ def test_robot_face_pointer_gestures_drive_head_and_tap_reaction():
         'removeEventListener("pointerdown"',
     ):
         assert token in source, token
+    # A cancelled pointer gesture settles the head but must never fire the
+    # tap reaction - only a real pointerup can trigger EXCITED.
+    assert 'addEventListener("pointercancel", onPointerCancel)' in source
+    assert 'removeEventListener("pointercancel", onPointerCancel)' in source
+    cancel = source[
+        source.index("function onPointerCancel(") : source.index("function onPointerLeave(")
+    ]
+    assert "triggerExcited" not in cancel
+    assert "gesture.active = false" in cancel
+    end = source[
+        source.index("function onPointerEnd(") : source.index("/* A cancelled gesture")
+    ]
+    assert "triggerExcited()" in end
+    assert 'addEventListener("pointerup", onPointerEnd)' in source
     # Dragging must not scroll the page underneath the preview.
     template = CONTROLLER_TEMPLATE.read_text(encoding="utf-8")
     face_markup = template[
@@ -661,6 +675,18 @@ def test_face_color_palette_markup_is_rendered(api_client, parent):
     assert html.index('id="robot-face"') < html.index('id="face-palette"')
     # No form - the page stays read-only (colors are plain controls).
     assert "<form" not in html
+
+
+def test_face_hex_inputs_ship_uppercase_initial_values(api_client, parent):
+    robot = _robot(parent)
+    html = api_client.get(controller_url(robot)).content.decode()
+    for key in ("casing", "display", "eyes", "mouth", "glow"):
+        match = re.search(rf'id="face-hex-{key}"[^>]*value="([^"]+)"', html)
+        assert match, key
+        value = match.group(1)
+        # Initial HEX text values are uppercase-canonical (Display's default
+        # is all digits, so its uppercase form is trivially itself).
+        assert value == value.upper(), (key, value)
 
 
 def test_face_color_palette_labels_are_user_facing_copy(api_client, parent):

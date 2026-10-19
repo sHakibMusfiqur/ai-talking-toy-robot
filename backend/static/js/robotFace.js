@@ -925,6 +925,17 @@ function initFace() {
       wake();
     }
 
+    /* A cancelled gesture (browser takeover, palm rejection, etc.) only
+       settles the head back - it must never count as a tap reaction. */
+    function onPointerCancel(event) {
+      if (!gesture.active || disposed) return;
+      if (event && event.pointerId !== gesture.pointerId) return;
+      gesture.active = false;
+      gesture.yaw = 0;
+      gesture.pitch = 0;
+      wake();
+    }
+
     function onPointerLeave() {
       gesture.hoverYaw = 0;
       gesture.hoverPitch = 0;
@@ -943,7 +954,7 @@ function initFace() {
     container.addEventListener("pointerdown", onPointerDown);
     container.addEventListener("pointermove", onPointerMove);
     container.addEventListener("pointerup", onPointerEnd);
-    container.addEventListener("pointercancel", onPointerEnd);
+    container.addEventListener("pointercancel", onPointerCancel);
     container.addEventListener("pointerleave", onPointerLeave);
 
     window.addEventListener("pagehide", function () {
@@ -954,7 +965,7 @@ function initFace() {
       container.removeEventListener("pointerdown", onPointerDown);
       container.removeEventListener("pointermove", onPointerMove);
       container.removeEventListener("pointerup", onPointerEnd);
-      container.removeEventListener("pointercancel", onPointerEnd);
+      container.removeEventListener("pointercancel", onPointerCancel);
       container.removeEventListener("pointerleave", onPointerLeave);
       renderer.dispose();
     });
