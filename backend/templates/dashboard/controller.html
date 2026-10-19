@@ -49,14 +49,55 @@
 
       <!-- Robot preview + live status + robot actions -->
       <div class="mt-6 grid gap-5 lg:grid-cols-[minmax(0,1fr)_minmax(0,2.15fr)]">
-        <figure class="preview-card glass m-0 overflow-hidden rounded-3xl">
-          <div id="robot-face" class="relative h-[420px] w-full lg:h-full" data-face-state="loading" role="region" aria-label="Robot face preview">
+        <figure class="preview-card glass m-0 flex flex-col overflow-hidden rounded-3xl">
+          <div id="robot-face" class="relative min-h-[420px] w-full flex-1 touch-none" data-face-state="loading" role="region" aria-label="Robot face preview">
             <div id="face-loading" role="status" class="absolute inset-0 grid place-items-center">
               <span class="sr-only">Loading robot face&hellip;</span>
               <div class="skeleton h-40 w-40 rounded-full" aria-hidden="true"></div>
             </div>
             <div id="face-fallback" hidden class="absolute inset-0 grid place-items-center px-6 text-center">
               <p id="face-fallback-text" class="text-sm text-muted">3D preview unavailable in this browser.</p>
+            </div>
+          </div>
+          <div id="face-palette" class="border-t border-line px-4 py-3" role="group" aria-label="Robot face colors">
+            <div class="mb-2 flex flex-wrap items-center justify-between gap-2">
+              <p class="m-0 text-[11px] font-semibold uppercase tracking-[0.15em] text-faint">Face Colors</p>
+              <button type="button" id="face-palette-reset" class="rounded-full border border-line bg-raised px-2.5 py-1 text-[11px] font-medium text-muted transition-colors hover:border-gold hover:text-body">Reset to Default</button>
+            </div>
+            <div class="grid grid-cols-3 gap-2 sm:grid-cols-5">
+              <div class="flex flex-col gap-1">
+                <label for="face-color-casing" class="text-[10px] font-semibold uppercase tracking-[0.1em] text-faint">Casing</label>
+                <input type="color" id="face-color-casing" data-palette="casing" value="#f5a623" class="h-7 w-full cursor-pointer rounded-md border border-line bg-raised p-0.5">
+                <input type="text" id="face-hex-casing" data-palette-hex="casing" value="#F5A623" maxlength="7" spellcheck="false" autocomplete="off" aria-label="Casing hex color" class="w-full rounded-md border border-line bg-raised px-1 py-1 text-center font-mono text-[11px] uppercase text-body focus:border-gold focus:outline-none">
+              </div>
+              <div class="flex flex-col gap-1">
+                <label for="face-color-display" class="text-[10px] font-semibold uppercase tracking-[0.1em] text-faint">Display</label>
+                <input type="color" id="face-color-display" data-palette="display" value="#101013" class="h-7 w-full cursor-pointer rounded-md border border-line bg-raised p-0.5">
+                <input type="text" id="face-hex-display" data-palette-hex="display" value="#101013" maxlength="7" spellcheck="false" autocomplete="off" aria-label="Display hex color" class="w-full rounded-md border border-line bg-raised px-1 py-1 text-center font-mono text-[11px] uppercase text-body focus:border-gold focus:outline-none">
+              </div>
+              <div class="flex flex-col gap-1">
+                <label for="face-color-eyes" class="text-[10px] font-semibold uppercase tracking-[0.1em] text-faint">Eyes</label>
+                <input type="color" id="face-color-eyes" data-palette="eyes" value="#ffc24d" class="h-7 w-full cursor-pointer rounded-md border border-line bg-raised p-0.5">
+                <input type="text" id="face-hex-eyes" data-palette-hex="eyes" value="#FFC24D" maxlength="7" spellcheck="false" autocomplete="off" aria-label="Eyes hex color" class="w-full rounded-md border border-line bg-raised px-1 py-1 text-center font-mono text-[11px] uppercase text-body focus:border-gold focus:outline-none">
+              </div>
+              <div class="flex flex-col gap-1">
+                <label for="face-color-mouth" class="text-[10px] font-semibold uppercase tracking-[0.1em] text-faint">Mouth</label>
+                <input type="color" id="face-color-mouth" data-palette="mouth" value="#ff9e2c" class="h-7 w-full cursor-pointer rounded-md border border-line bg-raised p-0.5">
+                <input type="text" id="face-hex-mouth" data-palette-hex="mouth" value="#FF9E2C" maxlength="7" spellcheck="false" autocomplete="off" aria-label="Mouth hex color" class="w-full rounded-md border border-line bg-raised px-1 py-1 text-center font-mono text-[11px] uppercase text-body focus:border-gold focus:outline-none">
+              </div>
+              <div class="flex flex-col gap-1">
+                <label for="face-color-glow" class="text-[10px] font-semibold uppercase tracking-[0.1em] text-faint">Glow</label>
+                <input type="color" id="face-color-glow" data-palette="glow" value="#ffd98a" class="h-7 w-full cursor-pointer rounded-md border border-line bg-raised p-0.5">
+                <input type="text" id="face-hex-glow" data-palette-hex="glow" value="#FFD98A" maxlength="7" spellcheck="false" autocomplete="off" aria-label="Glow hex color" class="w-full rounded-md border border-line bg-raised px-1 py-1 text-center font-mono text-[11px] uppercase text-body focus:border-gold focus:outline-none">
+              </div>
+            </div>
+            <div class="mt-2 flex flex-wrap gap-1.5" role="group" aria-label="Color presets">
+              <button type="button" data-face-preset="amber" class="rounded-full border border-line bg-raised px-2.5 py-1 text-[11px] font-medium text-muted transition-colors hover:border-gold hover:text-body">Amber</button>
+              <button type="button" data-face-preset="blue" class="rounded-full border border-line bg-raised px-2.5 py-1 text-[11px] font-medium text-muted transition-colors hover:border-gold hover:text-body">Blue</button>
+              <button type="button" data-face-preset="pink" class="rounded-full border border-line bg-raised px-2.5 py-1 text-[11px] font-medium text-muted transition-colors hover:border-gold hover:text-body">Pink</button>
+              <button type="button" data-face-preset="green" class="rounded-full border border-line bg-raised px-2.5 py-1 text-[11px] font-medium text-muted transition-colors hover:border-gold hover:text-body">Green</button>
+              <button type="button" data-face-preset="purple" class="rounded-full border border-line bg-raised px-2.5 py-1 text-[11px] font-medium text-muted transition-colors hover:border-gold hover:text-body">Purple</button>
+              <button type="button" data-face-preset="mono" class="rounded-full border border-line bg-raised px-2.5 py-1 text-[11px] font-medium text-muted transition-colors hover:border-gold hover:text-body">Monochrome</button>
             </div>
           </div>
           <p class="sr-only" id="face-status" role="status" aria-live="polite"></p>

@@ -561,6 +561,170 @@ def test_robot_face_reduced_motion_events_update_expression():
     assert "wake();" in command_listener[: command_listener.index("});")]
 
 
+# --- RoboPanel face: geometry, expressions, gestures, color palette --------
+
+CONTROLLER_TEMPLATE = (
+    Path(__file__).resolve().parents[2] / "templates" / "dashboard" / "controller.html"
+)
+
+
+def _face_source():
+    js_dir = Path(__file__).resolve().parents[2] / "static" / "js"
+    return (js_dir / "robotFace.js").read_text(encoding="utf-8")
+
+
+def test_robot_face_builds_reference_geometry_procedurally():
+    source = _face_source()
+    for token in (
+        "ExtrudeGeometry",
+        "roundedRect",
+        "InstancedMesh",
+        "TorusGeometry",
+        "CylinderGeometry",
+        "SphereGeometry",
+        "PlaneGeometry",
+        "CanvasTexture",
+    ):
+        assert token in source, token
+    # The face builds geometry at runtime - it must never load image/model
+    # assets (the preview is procedural, per the approved design reference).
+    for forbidden in ("TextureLoader", "GLTFLoader", "OBJLoader", "ImageLoader"):
+        assert forbidden not in source, forbidden
+    # Recessed display (bezel opening) + pixel grid are real geometry.
+    assert "holes.push" in source
+    assert "FACE_CELLS" in source
+
+
+def test_robot_face_expression_engine_covers_all_moods_with_fallback():
+    source = _face_source()
+    block = source[source.index("var EXPRESSIONS") : source.index("function expressionFor")]
+    for mood in (
+        "IDLE",
+        "HAPPY",
+        "SAD",
+        "THINKING",
+        "LISTENING",
+        "EXCITED",
+        "CONFUSED",
+        "PLAYING",
+        "OFFLINE",
+        "BLINK",
+    ):
+        assert f"{mood}: makeExpression(" in block, mood
+    # Unsupported moods degrade to IDLE instead of breaking the face.
+    assert "EXPRESSIONS[mood] || EXPRESSIONS.IDLE" in source
+    # Pixel patterns are ASCII rows (lit marker X, dark marker .).
+    assert '"XXXXXX"' in source
+    assert '"..........."' in source
+
+
+def test_robot_face_pointer_gestures_drive_head_and_tap_reaction():
+    source = _face_source()
+    for token in (
+        "pointerdown",
+        "pointermove",
+        "pointerup",
+        "pointercancel",
+        "setPointerCapture",
+        "MAX_YAW",
+        "MAX_PITCH",
+        "TAP_MOVE_LIMIT",
+        "TAP_TIME_LIMIT",
+        'transient.mood = "EXCITED"',
+        "1500",
+        "onPointerLeave",
+        'removeEventListener("pointerdown"',
+    ):
+        assert token in source, token
+    # Dragging must not scroll the page underneath the preview.
+    template = CONTROLLER_TEMPLATE.read_text(encoding="utf-8")
+    face_markup = template[
+        template.index('id="robot-face"') : template.index('id="face-loading"')
+    ]
+    assert "touch-none" in face_markup
+
+
+def test_face_color_palette_markup_is_rendered(api_client, parent):
+    robot = _robot(parent)
+    html = api_client.get(controller_url(robot)).content.decode()
+    assert 'id="face-palette"' in html
+    for key in ("casing", "display", "eyes", "mouth", "glow"):
+        assert f'data-palette="{key}"' in html, key
+        assert f'data-palette-hex="{key}"' in html, key
+        assert f'id="face-color-{key}"' in html, key
+        assert f'id="face-hex-{key}"' in html, key
+    for preset in ("amber", "blue", "pink", "green", "purple", "mono"):
+        assert f'data-face-preset="{preset}"' in html, preset
+    assert 'id="face-palette-reset"' in html
+    assert "Reset to Default" in html
+    # The palette sits inside the preview figure, below the 3D canvas.
+    assert html.index('id="robot-face"') < html.index('id="face-palette"')
+    # No form - the page stays read-only (colors are plain controls).
+    assert "<form" not in html
+
+
+def test_face_color_palette_labels_are_user_facing_copy(api_client, parent):
+    robot = _robot(parent)
+    html = api_client.get(controller_url(robot)).content.decode()
+    text = _visible_text(html)
+    for label in (
+        "casing",
+        "display",
+        "eyes",
+        "mouth",
+        "glow",
+        "amber",
+        "blue",
+        "pink",
+        "green",
+        "purple",
+        "monochrome",
+        "face colors",
+        "reset to default",
+    ):
+        assert label in text, label
+
+
+def test_robot_face_palette_is_session_only_and_validates_hex():
+    source = _face_source()
+    # Colors are session-only UI state: no persistence or storage sinks.
+    for forbidden in ("localStorage", "sessionStorage", "document.cookie", "indexedDB"):
+        assert forbidden not in source, forbidden
+    assert "PALETTE_DEFAULT" in source
+    # Full (6-digit) and short (3-digit) hex values are accepted...
+    assert "[0-9a-fA-F]{6}" in source
+    assert "[0-9a-fA-F]{3}" in source
+    # ...anything else is rejected with an accessible invalid state.
+    assert 'setAttribute("aria-invalid"' in source
+    # Six preset palettes plus reset-to-default.
+    for preset in ("amber", "blue", "pink", "green", "purple", "mono"):
+        assert f"{preset}:" in source, preset
+    # Each color group drives its own channel - groups never alias.
+    for channel in ("casingMat", "screenMat", "eyeColor", "mouthColor", "ringMat"):
+        assert channel in source, channel
+
+
+def test_robot_face_blink_overrides_eyes_and_reduced_motion_snaps():
+    source = _face_source()
+    assert "EXPRESSIONS.BLINK" in source
+    assert "eyesClosed" in source
+    assert "blinkT" in source
+    assert "blinkTimer" in source
+    # Under prefers-reduced-motion every damped value snaps instead of easing.
+    assert "reduced ? 1 :" in source
+
+
+def test_robot_face_animation_callback_is_not_shadowed():
+    """Regression (found by live browser verification): the bezel mesh was
+    named `frame`, and `var frame = ...` executed inside start() overwrote
+    the hoisted function frame(dt, t) binding - every animation tick then
+    threw `frame is not a function` and the canvas never rendered."""
+    source = _face_source()
+    assert "function frame(dt, t)" in source
+    assert not re.search(r"\bvar\s+frame\b", source)
+    assert not re.search(r"\blet\s+frame\b", source)
+
+
 def test_controller_js_dispatches_confirmed_state_and_command_events():
     js_dir = Path(__file__).resolve().parents[2] / "static" / "js"
     source = (js_dir / "controller.js").read_text(encoding="utf-8")
